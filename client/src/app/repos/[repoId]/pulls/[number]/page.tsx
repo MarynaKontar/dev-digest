@@ -1,10 +1,8 @@
 /* PR Detail — /repos/:repoId/pulls/:number. F2 shell extended by A2 with:
-   - Findings panel (VerdictBanner + Lethal-Trifecta surfacing + FindingCards)
+   - Findings panel (VerdictBanner + FindingCards)
    - RunReviewDropdown (run all / a specific agent) + live SSE RunStatus
-   - Smart Diff viewer (grouped files, finding markers, split nudge) in Files tab
-   - Intent layer (in/out-of-scope chips)
-   Mount points preserved for A3 (PR Brief) and A4 (Conformance link).
-   Tab/drawer state lives in query (?tab, ?finding, ?compose, ?trace). */
+   - Basic file-by-file diff viewer in the Files tab
+   Tab state lives in query (?tab). */
 "use client";
 
 import React from "react";
@@ -12,17 +10,13 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Skeleton, ErrorState } from "@devdigest/ui";
 import { AppShell } from "../../../../../components/app-shell";
 import { RepoNotFound } from "../../../../../components/RepoNotFound";
-import ComposeReviewDrawer from "./_components/ComposeReviewDrawer";
-import RunTraceDrawer from "./_components/RunTraceDrawer";
-import WhyTimelineDrawer from "./_components/WhyTimelineDrawer";
 import { PrDetailHeader } from "./_components/PrDetailHeader";
 import { OverviewTab } from "./_components/OverviewTab";
 import { FindingsTab } from "./_components/FindingsTab";
 import { DiffTab } from "./_components/DiffTab";
-import { ConformanceTab } from "./_components/ConformanceTab";
 import { usePullDetail, usePulls } from "../../../../../lib/hooks";
 import { useQueryClient } from "@tanstack/react-query";
-import { usePrReviews, usePrIntent, useSmartDiff, useCancelRun, usePrActiveRuns, usePrRuns, useDeleteRun } from "../../../../../lib/hooks/reviews";
+import { usePrReviews, useCancelRun, usePrActiveRuns, usePrRuns, useDeleteRun } from "../../../../../lib/hooks/reviews";
 import { useActiveRepo, useRepoNotFound } from "../../../../../lib/repo-context";
 import { ApiError } from "../../../../../lib/api";
 import { githubPrUrl } from "../../../../../lib/github-urls";
@@ -43,8 +37,6 @@ export default function PRDetailPage() {
 
   const isLoading = pullsLoading || (prId != null && detailLoading);
   const { data: reviews, refetch: refetchReviews } = usePrReviews(prId);
-  const { data: intent } = usePrIntent(prId);
-  const { data: smartDiff } = useSmartDiff(prId);
 
   // Live run tracking is SERVER-SOURCED (agent_runs status='running'): survives
   // navigation AND reload, and self-clears via polling when runs finish.
@@ -72,19 +64,6 @@ export default function PRDetailPage() {
     router.replace(`/repos/${repoId}/pulls/${number}${sp.toString() ? `?${sp.toString()}` : ""}`);
   };
   const setTab = (t: string) => setParam("tab", t);
-
-  // Drawer state from query (?compose, ?trace=runId, ?why=file:line) — deep-linkable.
-  const composeOpen = search.get("compose") != null;
-  const traceRunId = search.get("trace");
-  const whyParam = search.get("why");
-  const whyLocation = React.useMemo(() => {
-    if (!whyParam) return null;
-    const i = whyParam.lastIndexOf(":");
-    if (i < 0) return null;
-    const file = whyParam.slice(0, i);
-    const line = Number(whyParam.slice(i + 1));
-    return file && Number.isFinite(line) ? { file, line } : null;
-  }, [whyParam]);
 
   // Reviews come newest-first; each is its own run (grouped into accordions).
   const runs = reviews ?? [];
@@ -148,19 +127,12 @@ export default function PRDetailPage() {
         findingsCount={findingsCount}
         githubUrl={repoFullName ? githubPrUrl(repoFullName, pr.number) : null}
         onSetTab={setTab}
-        onComposeOpen={() => setParam("compose", "1")}
         onRunStart={() => setTab("findings")}
         onRunsStarted={() => invalidateActiveRuns()}
       />
 
       <div style={{ padding: "24px 32px 44px", display: "flex", flexDirection: "column", gap: 24, maxWidth: 1080, margin: "0 auto" }}>
-        {tab === "overview" && (
-          <OverviewTab
-            prId={prId}
-            prBody={pr.body}
-            onWhy={(file, line) => setParam("why", `${file}:${line}`)}
-          />
-        )}
+        {tab === "overview" && <OverviewTab prBody={pr.body} />}
 
         {tab === "findings" && (
           <FindingsTab
@@ -176,7 +148,7 @@ export default function PRDetailPage() {
             cancelMutation={cancel}
             onOpenTrace={(id) => setParam("trace", id)}
             onDelete={(id) => {
-              if (window.confirm("Delete this run from history? (its trace/logs are removed too)"))
+              if (window.confirm("Delete this run from history? (its logs are removed too)"))
                 deleteRun.mutate(id);
             }}
             onRunDone={() => {
@@ -192,30 +164,10 @@ export default function PRDetailPage() {
             prId={prId}
             filesCount={pr.files_count}
             files={pr.files}
-            smartDiff={smartDiff}
             canComment={pr.status === "open"}
           />
         )}
-
-        {tab === "conformance" && (
-          <ConformanceTab prId={prId} prNumber={pr.number} />
-        )}
       </div>
-
-      {/* Drawers (deep-linkable via query params) */}
-      {prId && composeOpen && (
-        <ComposeReviewDrawer
-          prId={prId}
-          onClose={() => setParam("compose", null)}
-          onPosted={() => refetch()}
-        />
-      )}
-      {prId && traceRunId && (
-        <RunTraceDrawer runId={traceRunId} prNumber={pr.number} onClose={() => setParam("trace", null)} />
-      )}
-      {prId && (
-        <WhyTimelineDrawer prId={prId} location={whyLocation} onClose={() => setParam("why", null)} />
-      )}
     </AppShell>
   );
 }

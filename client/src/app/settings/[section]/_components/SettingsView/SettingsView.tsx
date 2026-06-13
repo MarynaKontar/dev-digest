@@ -1,5 +1,6 @@
-/* Settings — left sub-nav + sections. API Keys (with Test connection), Automatic
-   Reviews, Integrations, Plugins. Section is deep-linked at /settings/:section. */
+/* Settings — left sub-nav + sections. API Keys (OpenRouter + GitHub PAT, with
+   Test connection) and Feature Models. Section is deep-linked at
+   /settings/:section. */
 "use client";
 
 import React from "react";
@@ -10,23 +11,7 @@ import { useTranslations } from "next-intl";
 import { AppShell } from "../../../../../components/app-shell";
 import { SettingsApiKeys } from "./_components/SettingsApiKeys";
 import { SettingsModels } from "./_components/SettingsModels";
-import { SettingsAutoReviews } from "./_components/SettingsAutoReviews";
-import { SettingsIntegrations } from "./_components/SettingsIntegrations";
-import { SettingsWorkspace } from "./_components/SettingsWorkspace";
-import { SettingsGitHub } from "./_components/SettingsGitHub";
-import { SettingsAbout } from "./_components/SettingsAbout";
-import { SettingsPlugins } from "../PluginsSection";
-import {
-  DEFAULT_SECTION,
-  SECTION_API_KEYS,
-  SECTION_MODELS,
-  SECTION_AUTO_REVIEWS,
-  SECTION_INTEGRATIONS,
-  SECTION_PLUGINS,
-  SECTION_WORKSPACE,
-  SECTION_GITHUB,
-  SECTION_ABOUT,
-} from "./constants";
+import { DEFAULT_SECTION, SECTION_API_KEYS, SECTION_MODELS } from "./constants";
 import { s } from "./styles";
 
 export function SettingsView() {
@@ -54,18 +39,6 @@ export function SettingsView() {
             <SettingsApiKeys />
           ) : section === SECTION_MODELS ? (
             <SettingsModels />
-          ) : section === SECTION_AUTO_REVIEWS ? (
-            <SettingsAutoReviews />
-          ) : section === SECTION_INTEGRATIONS ? (
-            <SettingsIntegrations />
-          ) : section === SECTION_WORKSPACE ? (
-            <SettingsWorkspace />
-          ) : section === SECTION_GITHUB ? (
-            <SettingsGitHub />
-          ) : section === SECTION_ABOUT ? (
-            <SettingsAbout />
-          ) : section === SECTION_PLUGINS ? (
-            <SettingsPlugins />
           ) : (
             <EmptyState
               icon="Settings"

@@ -1,15 +1,15 @@
-/* FindingsPanel — severity filters + hide-low-confidence + j/k navigation +
-   FindingCard list, wiring the accept/dismiss/learn/reply action hook (A2 §7). */
+/* FindingsPanel — hide-low-confidence + j/k navigation + FindingCard list,
+   wiring the accept/dismiss action hook (A2 §7). */
 "use client";
 
 import React from "react";
 import { useTranslations } from "next-intl";
-import { Chip, Toggle, EmptyState, SEV } from "@devdigest/ui";
+import { Toggle, EmptyState } from "@devdigest/ui";
 import type { FindingRecord } from "@devdigest/shared";
 import { FindingCard } from "../FindingCard";
 import { useFindingAction } from "../../../../../../../lib/hooks/reviews";
-import { FILTER_SEVERITIES, KEY_TO_ACTION } from "./constants";
-import { countBySeverity, visibleFindings } from "./helpers";
+import { KEY_TO_ACTION } from "./constants";
+import { visibleFindings } from "./helpers";
 import { s } from "./styles";
 
 export function FindingsPanel({
@@ -25,22 +25,12 @@ export function FindingsPanel({
 }) {
   const t = useTranslations("prReview");
   const action = useFindingAction();
-  const [sevFilter, setSevFilter] = React.useState<Record<string, boolean>>({
-    CRITICAL: true,
-    WARNING: true,
-    SUGGESTION: true,
-  });
   const [hideLow, setHideLow] = React.useState(false);
   const [focusIdx, setFocusIdx] = React.useState(0);
 
-  const counts = React.useMemo(() => countBySeverity(findings), [findings]);
+  const shown = React.useMemo(() => visibleFindings(findings, hideLow), [findings, hideLow]);
 
-  const shown = React.useMemo(
-    () => visibleFindings(findings, sevFilter, hideLow),
-    [findings, sevFilter, hideLow],
-  );
-
-  // j/k navigation + a/d/l shortcuts on the focused finding (§9 keyboard).
+  // j/k navigation + a/d shortcuts on the focused finding (§9 keyboard).
   React.useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
@@ -58,19 +48,6 @@ export function FindingsPanel({
   return (
     <div>
       <div style={s.toolbar}>
-        {FILTER_SEVERITIES.map((sv) => (
-          <Chip
-            key={sv}
-            active={sevFilter[sv]}
-            onClick={() => setSevFilter((prev) => ({ ...prev, [sv]: !prev[sv] }))}
-            icon={SEV[sv].icon}
-            count={counts[sv] || 0}
-            color={SEV[sv].c}
-          >
-            {SEV[sv].label}
-          </Chip>
-        ))}
-        <div style={s.divider} />
         <div style={s.toggleGroup}>
           {t("panel.hideLowConfidence")}
           <Toggle on={hideLow} onChange={setHideLow} size={16} />
@@ -90,7 +67,7 @@ export function FindingsPanel({
               pending={action.isPending}
               repoFullName={repoFullName}
               headSha={headSha}
-              onAction={(act, reply) => action.mutate({ findingId: f.id, action: act, reply, prId })}
+              onAction={(act) => action.mutate({ findingId: f.id, action: act, prId })}
             />
           ))
         )}

@@ -1,5 +1,5 @@
 /* hooks/reviews.ts — React Query + SSE hooks for the A2 reviewer (§12).
-   Run a review, stream RunEvents live, act on findings, fetch smart-diff/intent. */
+   Run a review, stream RunEvents live, act on findings. */
 "use client";
 
 import React from "react";
@@ -8,13 +8,11 @@ import { api, API_BASE } from "../api";
 import { notify } from "../toast";
 import type {
   FindingActionKind,
-  Intent,
   PrReviewComment,
   ReviewRecord,
   ReviewRunResponse,
   RunEvent,
   RunSummary,
-  SmartDiff,
 } from "@devdigest/shared";
 
 // ---- Active (in-flight) runs — server-side source of truth ----
@@ -83,23 +81,6 @@ export function useDeleteReview(prId: string | null | undefined) {
   });
 }
 
-export function usePrIntent(prId: string | null | undefined) {
-  return useQuery({
-    queryKey: ["intent", prId],
-    queryFn: () => api.get<Intent & { pr_id: string }>(`/pulls/${prId}/intent`),
-    enabled: !!prId,
-    retry: false,
-  });
-}
-
-export function useSmartDiff(prId: string | null | undefined) {
-  return useQuery({
-    queryKey: ["smart-diff", prId],
-    queryFn: () => api.get<SmartDiff>(`/pulls/${prId}/smart-diff`),
-    enabled: !!prId,
-  });
-}
-
 // ---- Inline review comments on the "Files changed" tab (proxied to GitHub) --
 /** Existing GitHub PR review comments, fetched live. */
 export function usePrComments(prId: string | null | undefined) {
@@ -145,13 +126,11 @@ export function useRunReview() {
       }),
     onSuccess: (_d, { prId }) => {
       qc.invalidateQueries({ queryKey: ["reviews", prId] });
-      qc.invalidateQueries({ queryKey: ["smart-diff", prId] });
-      qc.invalidateQueries({ queryKey: ["intent", prId] });
     },
   });
 }
 
-// ---- Finding actions (accept/dismiss/learn/reply) ----
+// ---- Finding actions (accept/dismiss) ----
 export function useFindingAction() {
   const qc = useQueryClient();
   return useMutation({

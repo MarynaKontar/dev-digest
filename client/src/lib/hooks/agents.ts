@@ -3,7 +3,7 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
-import type { Agent, AgentSkillLink, ModelInfo, Provider, ReviewStrategy } from "@devdigest/shared";
+import type { Agent, ModelInfo, Provider, ReviewStrategy } from "@devdigest/shared";
 
 export function useAgents() {
   return useQuery({
@@ -77,24 +77,6 @@ export function useDeleteAgent() {
       qc.invalidateQueries({ queryKey: ["agents"] });
       qc.removeQueries({ queryKey: ["agent", id] });
     },
-  });
-}
-
-export function useAgentSkills(agentId: string | null | undefined) {
-  return useQuery({
-    queryKey: ["agent", agentId, "skills"],
-    queryFn: () => api.get<AgentSkillLink[]>(`/agents/${agentId}/skills`),
-    enabled: !!agentId,
-  });
-}
-
-export function useSetAgentSkills() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ agentId, skillIds }: { agentId: string; skillIds: string[] }) =>
-      api.post<AgentSkillLink[]>(`/agents/${agentId}/skills`, { skill_ids: skillIds }),
-    onSuccess: (_d, { agentId }) =>
-      qc.invalidateQueries({ queryKey: ["agent", agentId, "skills"] }),
   });
 }
 

@@ -1,1 +1,0 @@
-export { SettingsGitHub } from "./SettingsGitHub";

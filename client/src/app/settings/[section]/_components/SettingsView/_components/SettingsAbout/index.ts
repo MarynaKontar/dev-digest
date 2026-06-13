@@ -1,1 +1,0 @@
-export { SettingsAbout } from "./SettingsAbout";

@@ -10,6 +10,3 @@ export const SEV_COLOR: Record<string, string> = {
 
 /** Fallback colour for an unknown severity. */
 export const SEV_COLOR_FALLBACK = "var(--text-muted)";
-
-/** Rows shown in the reply composer. */
-export const REPLY_ROWS = 3;

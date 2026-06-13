@@ -1,5 +1,5 @@
-/* /agents/:id — Agent Editor (A2, L03). Left agent list + 5-tab editor
-   (Config/Skills/Evals/Stats/CI). Tab state lives in ?tab=. Ported from
+/* /agents/:id — Agent Editor (A2, L03). Left agent list + Config editor
+   (model + system prompt). Tab state lives in ?tab=. Ported from
    screen_agents.jsx. */
 "use client";
 
@@ -12,7 +12,7 @@ import { AgentEditor } from "./_components/AgentEditor";
 import { useAgents, useAgent, useUpdateAgent } from "../../../lib/hooks/agents";
 import { ApiError } from "../../../lib/api";
 
-const VALID_TABS = ["config", "skills", "evals", "stats", "ci"];
+const VALID_TABS = ["config"];
 
 export default function AgentEditorPage() {
   const params = useParams<{ id: string }>();
