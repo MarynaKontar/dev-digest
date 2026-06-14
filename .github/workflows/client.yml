@@ -24,6 +24,7 @@ concurrency:
 
 jobs:
   test:
+    name: tests
     runs-on: ubuntu-latest
     defaults:
       run:

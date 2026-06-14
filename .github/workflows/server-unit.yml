@@ -66,6 +66,7 @@ jobs:
       - run: pnpm typecheck
 
   unit:
+    name: tests
     runs-on: ubuntu-latest
     defaults:
       run:
