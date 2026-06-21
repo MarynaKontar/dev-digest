@@ -91,8 +91,14 @@
       "author": "Author",
       "size": "Size",
       "score": "Score",
+      "findings": "Findings",
       "status": "Status",
+      "cost": "Cost",
       "updated": "Updated"
+    },
+    "panel": {
+      "loading": "Loading findings…",
+      "noFindings": "No open findings for this severity."
     },
     "filesCount": "{count} files",
     "errorTitle": "Couldn’t load pull requests",

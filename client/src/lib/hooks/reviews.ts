@@ -48,11 +48,18 @@ export function usePrRuns(prId: string | null | undefined) {
 }
 
 // ---- Persisted reviews + findings for a PR ----
-export function usePrReviews(prId: string | null | undefined) {
+/**
+ * Fetch reviews + findings for a PR. Pass `{ enabled: false }` to gate the
+ * fetch (e.g. lazy inline panel — fire only when the panel is open).
+ */
+export function usePrReviews(
+  prId: string | null | undefined,
+  opts?: { enabled?: boolean },
+) {
   return useQuery({
     queryKey: ["reviews", prId],
     queryFn: () => api.get<ReviewRecord[]>(`/pulls/${prId}/reviews`),
-    enabled: !!prId,
+    enabled: !!prId && (opts?.enabled ?? true),
   });
 }
 

@@ -45,6 +45,12 @@ export default function PullsPage() {
 
   const [query, setQuery] = React.useState("");
   const [sort, setSort] = React.useState("newest");
+  // Which PR's findings panel is open (one at a time).
+  const [expandedPrId, setExpandedPrId] = React.useState<string | null>(null);
+
+  const handleToggle = React.useCallback((prId: string) => {
+    setExpandedPrId((prev) => (prev === prId ? null : prId));
+  }, []);
 
   const q = query.trim().toLowerCase();
   const filtered = (pulls ?? [])
@@ -127,7 +133,15 @@ export default function PullsPage() {
             }
           />
         ) : (
-          filtered.map((pr) => <PRRow key={pr.number} pr={pr} repoId={repoId} />)
+          filtered.map((pr) => (
+            <PRRow
+              key={pr.number}
+              pr={pr}
+              repoId={repoId}
+              isExpanded={expandedPrId === pr.id}
+              onToggle={handleToggle}
+            />
+          ))
         )}
       </div>
     </AppShell>

@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, isNull } from 'drizzle-orm';
 import type { PrMeta, PrDetail, GitHubClient, PrReviewComment } from '@devdigest/shared';
 import { PrCommentInput } from '@devdigest/shared';
 import * as t from '../../db/schema.js';
@@ -111,21 +111,130 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
       }
     }
 
-    // Latest-review SCORE per PR for the list's score ring. Computed on read
-    // from reviews (no FK denorm); the list is small, so one IN-query + JS
-    // grouping is cheap. (The per-severity FINDINGS breakdown is intentionally
-    // not surfaced on the list — findings live on the PR detail page.)
+    // Latest-review SCORE + ID per PR for the list's score ring, plus the set of
+    // review IDs in that PR's latest review SESSION for the findings counters.
+    // A single "Run Review" fans out parallel agents → several reviews written
+    // within seconds; we cluster them with the same BATCH_GAP_MS heuristic the
+    // COST column uses, so the counters reflect the whole session, not whichever
+    // agent's review happened to land last (which may have zero findings).
+    // Computed on read (no FK denorm); the list is small, so one IN-query + JS
+    // grouping is cheap.
+    // TODO: replace with exact grouping when a review_session_id lands in schema.
+    const BATCH_GAP_MS = 90_000;
     const prIds = rows.map((r) => r.id);
-    const latestReviewByPr = new Map<string, { score: number | null }>();
+    const latestReviewByPr = new Map<string, { id: string; score: number | null }>();
+    const batchReviewIdsByPr = new Map<string, string[]>();
     if (prIds.length > 0) {
       const reviewRows = await container.db
-        .select({ prId: t.reviews.prId, score: t.reviews.score })
+        .select({
+          prId: t.reviews.prId,
+          id: t.reviews.id,
+          score: t.reviews.score,
+          createdAt: t.reviews.createdAt,
+        })
         .from(t.reviews)
         .where(and(inArray(t.reviews.prId, prIds), eq(t.reviews.kind, 'review')))
         .orderBy(desc(t.reviews.createdAt));
-      // Rows are newest-first → first seen per PR is the latest review.
+      // Rows are newest-first. First seen per PR is the latest review (score ring);
+      // then extend a cluster backwards while consecutive reviews stay within the
+      // gap — those form the latest session whose findings we sum.
+      const batchAnchor = new Map<string, number>(); // prId → last included createdAt ms
       for (const rv of reviewRows) {
-        if (!latestReviewByPr.has(rv.prId)) latestReviewByPr.set(rv.prId, { score: rv.score });
+        if (!latestReviewByPr.has(rv.prId))
+          latestReviewByPr.set(rv.prId, { id: rv.id, score: rv.score });
+        const ms = rv.createdAt ? rv.createdAt.getTime() : 0;
+        const anchor = batchAnchor.get(rv.prId);
+        if (anchor === undefined) {
+          batchAnchor.set(rv.prId, ms);
+          batchReviewIdsByPr.set(rv.prId, [rv.id]);
+        } else if (anchor - ms <= BATCH_GAP_MS) {
+          batchReviewIdsByPr.get(rv.prId)!.push(rv.id);
+          batchAnchor.set(rv.prId, ms);
+        }
+        // Older than the gap → a previous session; ignored (rows are newest-first).
+      }
+    }
+
+    // Open-findings count per severity, summed across each PR's latest review
+    // session. One bulk query + JS grouping — no per-PR fan-out.
+    type SeverityKey = 'CRITICAL' | 'WARNING' | 'SUGGESTION';
+    const ZERO_COUNTS = (): Record<SeverityKey, number> => ({ CRITICAL: 0, WARNING: 0, SUGGESTION: 0 });
+    const findingsByPr = new Map<string, Record<SeverityKey, number>>();
+    const reviewToPr = new Map<string, string>(); // reviewId → prId, for the latest session
+    for (const [prId, ids] of batchReviewIdsByPr) for (const id of ids) reviewToPr.set(id, prId);
+    const batchReviewIds = [...reviewToPr.keys()];
+    if (batchReviewIds.length > 0) {
+      const sevRows = await container.db
+        .select({
+          reviewId: t.findings.reviewId,
+          severity: t.findings.severity,
+          n: count(),
+        })
+        .from(t.findings)
+        .where(
+          and(
+            inArray(t.findings.reviewId, batchReviewIds),
+            isNull(t.findings.dismissedAt),
+          ),
+        )
+        .groupBy(t.findings.reviewId, t.findings.severity);
+      for (const row of sevRows) {
+        const prId = reviewToPr.get(row.reviewId);
+        if (!prId) continue;
+        const bucket = findingsByPr.get(prId) ?? ZERO_COUNTS();
+        const sev = row.severity as SeverityKey;
+        // One row per (review, severity); sum so multiple reviews in the same
+        // session accumulate into the PR's counter.
+        if (sev in bucket) bucket[sev] += Number(row.n);
+        findingsByPr.set(prId, bucket);
+      }
+    }
+
+    // Batch cost per PR for the list's COST column. Heuristic: cluster the most
+    // recent completed runs per PR by time gap — a burst of parallel agents
+    // within BATCH_GAP_MS is treated as one review session and summed.
+    // Reuses BATCH_GAP_MS from the findings-session clustering above.
+    const costByPr = new Map<string, number>();
+    if (prIds.length > 0) {
+      const runRows = await container.db
+        .select({
+          prId: t.agentRuns.prId,
+          ranAt: t.agentRuns.ranAt,
+          costUsd: t.agentRuns.costUsd,
+        })
+        .from(t.agentRuns)
+        .where(
+          and(
+            eq(t.agentRuns.workspaceId, workspaceId),
+            inArray(t.agentRuns.prId, prIds),
+            eq(t.agentRuns.status, 'done'),
+          ),
+        )
+        .orderBy(desc(t.agentRuns.ranAt));
+      // Walk newest-first per PR; form a cluster starting from the most recent
+      // priced run, adding older runs while within BATCH_GAP_MS of the previous.
+      const clusterAnchor = new Map<string, number>(); // prId → last included ranAt ms
+      for (const row of runRows) {
+        if (row.prId == null) continue;
+        const prId = row.prId;
+        const rowMs = row.ranAt ? row.ranAt.getTime() : 0;
+        const anchor = clusterAnchor.get(prId);
+        if (anchor === undefined) {
+          // First run seen for this PR — start a cluster only if it has cost.
+          if (row.costUsd != null) {
+            clusterAnchor.set(prId, rowMs);
+            costByPr.set(prId, (costByPr.get(prId) ?? 0) + row.costUsd);
+          }
+        } else {
+          // Extend cluster while within the gap.
+          if (anchor - rowMs <= BATCH_GAP_MS) {
+            if (row.costUsd != null) {
+              costByPr.set(prId, (costByPr.get(prId) ?? 0) + row.costUsd);
+            }
+            clusterAnchor.set(prId, rowMs);
+          }
+          // Once outside the gap, stop adding older runs for this PR.
+        }
       }
     }
 
@@ -153,6 +262,8 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
         opened_at: r.openedAt?.toISOString() ?? null,
         updated_at: r.updatedAt?.toISOString() ?? null,
         score: review ? review.score : null,
+        cost_usd: costByPr.get(r.id) ?? null,
+        findings_by_severity: findingsByPr.get(r.id) ?? null,
       };
     });
   });
