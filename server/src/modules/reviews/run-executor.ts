@@ -82,6 +82,7 @@ export class ReviewRunExecutor {
             tokensOut: 0,
             findingsCount: 0,
             grounding: '0/0 passed',
+            costUsd: null,
             error: msg,
           })
           .catch(() => undefined);
@@ -210,7 +211,7 @@ export class ReviewRunExecutor {
           if (this.container.runBus.isCancelled(runId)) throw new RunCancelledError();
         },
       });
-      const { tokensIn, tokensOut, grounding } = outcome;
+      const { tokensIn, tokensOut, grounding, costUsd } = outcome;
 
       const keptFindings = outcome.review.findings;
 
@@ -249,6 +250,7 @@ export class ReviewRunExecutor {
         grounding,
         score: outcome.review.score,
         blockers,
+        costUsd: costUsd ?? null,
         error: null,
       });
 
@@ -267,6 +269,7 @@ export class ReviewRunExecutor {
           tokens_out: tokensOut,
           findings: findingRows.length,
           grounding,
+          cost_usd: costUsd ?? null,
         },
         prompt_assembly: outcome.assembly,
         tool_calls: outcome.chunks.map((c) => ({
@@ -302,6 +305,7 @@ export class ReviewRunExecutor {
           tokensOut: 0,
           findingsCount: 0,
           grounding: '0/0 passed',
+          costUsd: null,
           error: msg,
         })
         .catch(() => undefined);
@@ -421,7 +425,7 @@ export class ReviewRunExecutor {
         pr: pull.number,
         source: 'local',
       },
-      stats: { duration_ms: durationMs, tokens_in: 0, tokens_out: 0, findings: 0, grounding },
+      stats: { duration_ms: durationMs, tokens_in: 0, tokens_out: 0, findings: 0, grounding, cost_usd: null },
       prompt_assembly: { system: agent.systemPrompt, skills: null, memory: null, specs: null, user: '' },
       tool_calls: [],
       raw_output: '',

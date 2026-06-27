@@ -2,8 +2,10 @@
 
 import React from "react";
 import { useTranslations } from "next-intl";
-import { Badge, Icon, CircularScore, type IconName } from "@devdigest/ui";
-import type { RunSummary, PrCommit } from "@devdigest/shared";
+import { Badge, Icon, CircularScore, SeverityBadge, type IconName, type Severity } from "@devdigest/ui";
+import type { RunSummary, PrCommit, ReviewRecord } from "@devdigest/shared";
+import { RunCostBadge } from "@/components/RunCostBadge";
+import { FindingMiniCard } from "../../../_components/FindingMiniCard/FindingMiniCard";
 
 /**
  * PR timeline — every agent run interleaved with the PR's commits, newest-first
@@ -17,6 +19,9 @@ import type { RunSummary, PrCommit } from "@devdigest/shared";
  * matches the CI gate (deterministic) rather than the model's verdict.
  */
 
+const SEVERITIES: Severity[] = ["CRITICAL", "WARNING", "SUGGESTION"];
+const SEV_ORDER: Record<string, number> = { CRITICAL: 0, WARNING: 1, SUGGESTION: 2 };
+
 type Outcome = { key: string; color: string; bg: string; icon: IconName };
 
 function outcomeOf(run: RunSummary): Outcome {
@@ -27,12 +32,21 @@ function outcomeOf(run: RunSummary): Outcome {
     return { key: "error", color: "var(--crit)", bg: "var(--crit-bg)", icon: "XCircle" };
   if (status === "cancelled")
     return { key: "cancelled", color: "var(--text-muted)", bg: "var(--bg-hover)", icon: "X" };
-  // Settled ("done"): color by the deterministic outcome.
   if ((run.blockers ?? 0) > 0)
     return { key: "rejected", color: "var(--crit)", bg: "var(--crit-bg)", icon: "XCircle" };
   if ((run.findings_count ?? 0) > 0)
     return { key: "reviewed", color: "var(--warn)", bg: "var(--warn-bg)", icon: "MessageSquare" };
   return { key: "approved", color: "var(--ok)", bg: "var(--ok-bg)", icon: "CheckCircle" };
+}
+
+function countBySeverity(findings: ReviewRecord["findings"]): Record<Severity, number> {
+  const counts = { CRITICAL: 0, WARNING: 0, SUGGESTION: 0 } as Record<Severity, number>;
+  for (const f of findings) {
+    if (!f.dismissed_at && (f.severity as string) in counts) {
+      counts[f.severity as Severity] = (counts[f.severity as Severity] ?? 0) + 1;
+    }
+  }
+  return counts;
 }
 
 const rowStyle: React.CSSProperties = {
@@ -60,8 +74,6 @@ const iconBtnStyle: React.CSSProperties = {
   flexShrink: 0,
 };
 
-// Commits are markers, not actions — lighter (dashed, transparent) so they read
-// as separators between the runs they sit chronologically between.
 const commitRowStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
@@ -77,7 +89,6 @@ type TimelineItem =
   | { kind: "run"; ts: number; run: RunSummary }
   | { kind: "commit"; ts: number; commit: PrCommit };
 
-/** Epoch ms for sorting; unparseable / missing timestamps sort last. */
 function tsOf(s: string | null | undefined): number {
   if (!s) return 0;
   const n = Date.parse(s);
@@ -87,19 +98,27 @@ function tsOf(s: string | null | undefined): number {
 export function RunHistory({
   runs,
   commits = [],
+  reviews,
   onOpenTrace,
   onGoToReview,
   onDelete,
 }: {
   runs: RunSummary[];
   commits?: PrCommit[];
-  /** Open the trace + log drawer for a run (the logs icon). */
+  /** Full review records — used to derive per-run findings for the inline panel. */
+  reviews?: ReviewRecord[];
   onOpenTrace: (runId: string) => void;
-  /** Jump to this run's inline review accordion below (clicking the agent name). */
   onGoToReview?: (runId: string) => void;
   onDelete?: (runId: string) => void;
 }) {
   const t = useTranslations("prReview");
+  // Which run's findings panel is open (one at a time; any badge click toggles it).
+  const [expandedRunId, setExpandedRunId] = React.useState<string | null>(null);
+
+  const toggleRun = React.useCallback((runId: string) => {
+    setExpandedRunId((prev) => (prev === runId ? null : runId));
+  }, []);
+
   if (runs.length === 0 && commits.length === 0) return null;
 
   const items: TimelineItem[] = [
@@ -149,6 +168,15 @@ export function RunHistory({
         const r = item.run;
         const o = outcomeOf(r);
         const settled = r.status === "done";
+        const review = reviews?.find((rv) => rv.run_id === r.run_id);
+        const fbs = review ? countBySeverity(review.findings) : null;
+        const panelOpen = expandedRunId === r.run_id;
+        const openFindings = review
+          ? [...review.findings]
+              .filter((f) => !f.dismissed_at)
+              .sort((a, b) => (SEV_ORDER[a.severity] ?? 9) - (SEV_ORDER[b.severity] ?? 9))
+          : [];
+
         return (
           <div key={`run:${r.run_id}`} style={rowStyle}>
             <Badge color={o.color} bg={o.bg} icon={o.icon}>
@@ -188,15 +216,74 @@ export function RunHistory({
                   {r.error}
                 </div>
               )}
-              {settled && (
+              {/* Severity badges — anchor the dropdown panel below this element */}
+              {settled && fbs && SEVERITIES.some((s) => (fbs[s] ?? 0) > 0) ? (
+                <div style={{ position: "relative", display: "flex", gap: 4, flexWrap: "wrap" }}>
+                  {SEVERITIES.filter((sev) => (fbs[sev] ?? 0) > 0).map((sev) => (
+                    <button
+                      key={sev}
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); toggleRun(r.run_id); }}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        padding: 0,
+                        cursor: "pointer",
+                        outline: panelOpen ? "2px solid var(--accent)" : "none",
+                        outlineOffset: 2,
+                        borderRadius: 5,
+                      }}
+                      aria-pressed={panelOpen}
+                      aria-label={`${sev} findings: ${fbs[sev]}`}
+                    >
+                      <SeverityBadge severity={sev} count={fbs[sev]} compact />
+                    </button>
+                  ))}
+                  {/* Dropdown panel — floats below the badges, overlays items below */}
+                  {panelOpen && openFindings.length > 0 && (
+                    <div
+                      onClick={(e) => e.stopPropagation()}
+                      style={{
+                        position: "absolute",
+                        top: "calc(100% + 6px)",
+                        left: 0,
+                        width: 400,
+                        zIndex: 50,
+                        background: "var(--bg-elevated)",
+                        border: "1px solid var(--border)",
+                        borderRadius: 10,
+                        boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+                        overflow: "hidden",
+                      }}
+                    >
+                      <div style={{ padding: "8px 14px", fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", textTransform: "uppercase", borderBottom: "1px solid var(--border)" }}>
+                        {openFindings.length} finding{openFindings.length !== 1 ? "s" : ""} in this run
+                      </div>
+                      <div style={{ padding: "8px 14px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+                        {openFindings.map((f) => (
+                          <FindingMiniCard key={f.id} f={f} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : settled ? (
                 <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
                   {t("runStatus.findings", { count: r.findings_count ?? 0 })}
                   {(r.blockers ?? 0) > 0 ? t("runStatus.blockers", { count: r.blockers ?? 0 }) : ""}
                 </div>
-              )}
+              ) : null}
             </div>
             <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, fontSize: 11, color: "var(--text-muted)", flexShrink: 0 }}>
               {r.ran_at && <span>{new Date(r.ran_at).toLocaleTimeString()}</span>}
+              {settled && (
+                <RunCostBadge
+                  variant="withTokens"
+                  tokensIn={r.tokens_in}
+                  tokensOut={r.tokens_out}
+                  cost={r.cost_usd}
+                />
+              )}
             </div>
             <button
               type="button"
