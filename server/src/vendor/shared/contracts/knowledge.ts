@@ -140,6 +140,46 @@ export const CommunitySkill = z.object({
 });
 export type CommunitySkill = z.infer<typeof CommunitySkill>;
 
+// Immutable body snapshot captured in `skill_versions` whenever a skill's body
+// changes. The `note` field holds a human-readable change message shown in the
+// Versions tab ("Tightened scope rule…"). Used for reproducibility and diff.
+export const SkillVersion = z.object({
+  skill_id: z.string(),
+  version: z.number().int(),
+  body: z.string(),
+  note: z.string(),
+  created_at: z.string(),
+});
+export type SkillVersion = z.infer<typeof SkillVersion>;
+
+// Parsed-but-unsaved import result returned by POST /skills/import. The client
+// shows a preview (body + dropped_files + token estimate + trust warning) before
+// the user confirms via a normal POST /skills.
+export const SkillImportPreview = z.object({
+  name: z.string(),
+  description: z.string(),
+  type: SkillType,
+  body: z.string(),
+  source: SkillSource,
+  dropped_files: z.array(z.string()),
+  token_estimate: z.number().int(),
+});
+export type SkillImportPreview = z.infer<typeof SkillImportPreview>;
+
+// Aggregated stats payload for the Stats tab (GET /skills/:id/stats).
+// `used_by` + `agents` are computed from `agent_skills` (real).
+// `pull_rate`, `accept_rate`, `findings_30d`, `by_category` are seeded demo
+// numbers for L02 (findings are not yet tagged per skill in the current schema).
+export const SkillStats = z.object({
+  used_by: z.number().int(),
+  agents: z.array(z.object({ id: z.string(), name: z.string() })),
+  pull_rate: z.number(),
+  accept_rate: z.number(),
+  findings_30d: z.number().int(),
+  by_category: z.array(z.object({ category: z.string(), count: z.number().int() })),
+});
+export type SkillStats = z.infer<typeof SkillStats>;
+
 // ---- Conventions ----
 export const ConventionCandidate = z.object({
   id: z.string(),
@@ -195,6 +235,7 @@ export const AgentSkillLink = z.object({
   agent_id: z.string(),
   skill_id: z.string(),
   order: z.number().int(),
+  enabled: z.boolean(),
 });
 export type AgentSkillLink = z.infer<typeof AgentSkillLink>;
 

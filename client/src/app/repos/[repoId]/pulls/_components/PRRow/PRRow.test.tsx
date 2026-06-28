@@ -22,7 +22,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 // Mock the reviews hook so the panel never actually fetches
-vi.mock("../../../../../../lib/hooks/reviews", () => ({
+vi.mock("@/hooks/reviews", () => ({
   usePrReviews: () => ({ data: [], isLoading: false }),
 }));
 

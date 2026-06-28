@@ -13,8 +13,8 @@ import {
 } from "@devdigest/ui";
 import { AppShell } from "@/components/app-shell";
 import { RepoNotFound } from "@/components/repo-not-found";
-import { usePulls, useRefreshRepo } from "@/lib/hooks";
-import { useActiveRepo, useRepoNotFound } from "@/lib/repo-context";
+import { usePulls, useRefreshRepo } from "@/hooks";
+import { useActiveRepo, useRepoNotFound } from "@/providers/repo-context";
 import { ApiError } from "@/lib/api";
 import { COLUMN_KEYS, SKELETON_ROWS } from "./constants";
 import { s } from "./styles";

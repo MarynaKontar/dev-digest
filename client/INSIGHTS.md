@@ -25,9 +25,12 @@
 
 ## Recurring Errors & Fixes
 <!-- Repeated error + the fix -->
+- `noUncheckedIndexedAccess` in tsconfig causes `arr[0]` to type as `T | undefined` even in tests — always use `arr[0]!` when you know the element exists, or `find()` + a `expect(x).toBeDefined()` guard. Pattern seen in SkillCard.test.tsx and SkillsTab.test.tsx.
+- `screen.getByText("X")` fails when a modal has both a heading and a button with the same label (e.g., "Create skill"). Use `getAllByText("X").length >= 1` or `getAllByRole("button").find(b => b.textContent?.includes("X"))` for the submit button specifically.
 
 ## Session Notes
 <!-- Datestamped session summaries -->
+- 2026-06-28 — Skills feature (L02) client-side implementation: `hooks/skills.ts` (12 hooks mirroring agents.ts), nav entry (`Sparkles` icon, gKey `s`), `/skills` list page + `SkillCard` + `CreateSkillModal` + `ImportSkillModal`, `/skills/[id]` editor (Config/Preview/Stats/Versions tabs, `Donut` recharts), Agent Editor `SkillsTab` (up/down reorder, no dnd lib). 22 new files. i18n extended in `messages/en/skills.json`. All 58 tests pass, typecheck clean. Multipart import uses raw `fetch` (bypasses `apiFetch`'s `application/json` content-type injection). The `CATEGORY_COLORS` array needs `?? fallback` on indexed access due to `noUncheckedIndexedAccess`.
 - 2026-06-22 — findings-by-severity feature: severity badges on PR list + 400px floating dropdown (`position: absolute`) showing ALL findings from the latest batch session (`PRSeverityFindings`, no per-severity filter). Same pattern added to Agent Runs timeline (`RunHistory` via `reviews` prop). New component: `FindingMiniCard` (compact, always-visible 3-line rationale, colored left border). `PRRow` switched from Fragment to single div; expansion state simplified to `expandedPrId: string | null` in `page.tsx`. `tableCard` changed to `overflow: visible`. Spec updated at `server/specs/findings-by-severity-pr-list.md`.
 - 2026-06-21 — Added per-run cost UI on three surfaces: PR-list `COST` column (`PRRow.tsx` + `constants.ts` grid), Agent-runs timeline (`RunHistory.tsx`, `withTokens` badge under the timestamp on settled runs), and the Run Trace Stats block (`TraceBody.tsx`, a `COST` `Stat` tile between TOKENS and FINDINGS). New: `lib/cost.ts` (`formatCost`) + `components/RunCostBadge`. Contract fields mirrored from `server/src/vendor/shared`.
 

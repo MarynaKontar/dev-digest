@@ -6,6 +6,11 @@ import {
   GENERAL_REVIEWER_PROMPT,
   SECURITY_REVIEWER_PROMPT,
   PERFORMANCE_REVIEWER_PROMPT,
+  TEST_QUALITY_REVIEWER_PROMPT,
+  API_CONTRACT_REVIEWER_PROMPT,
+  TEST_COVERAGE_NUDGE_BODY,
+  TEST_QUALITY_PATTERNS_BODY,
+  API_CONTRACT_GATE_BODY,
 } from './seed-prompts.js';
 
 /** Default provider/model for the built-in reviewer agents. */
@@ -218,6 +223,124 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
       .from(t.agents)
       .where(and(eq(t.agents.workspaceId, workspaceId), eq(t.agents.name, a.name)));
     if (!existing) await db.insert(t.agents).values(a);
+  }
+
+  // ---- L02: skills (idempotent: upsert by name+workspace) ----
+  // Each skill gets a v1 skill_versions snapshot on first insert (note: "Initial").
+  const seedSkills: Array<{
+    name: string;
+    description: string;
+    type: (typeof t.skills.$inferInsert)['type'];
+    source: (typeof t.skills.$inferInsert)['source'];
+    body: string;
+  }> = [
+    {
+      name: 'Test Coverage Nudge',
+      description:
+        'Require every new conditional branch and error path to have a corresponding test — flag missing coverage as a CRITICAL gap.',
+      type: 'rubric',
+      source: 'manual',
+      body: TEST_COVERAGE_NUDGE_BODY,
+    },
+    {
+      name: 'Test Quality Patterns',
+      description:
+        'Flag over-mocking antipatterns, flaky test signals, and weak assertions — community-imported standards for TypeScript/Node.js projects.',
+      type: 'custom',
+      source: 'community',
+      body: TEST_QUALITY_PATTERNS_BODY,
+    },
+    {
+      name: 'API Contract Gate',
+      description:
+        'Enforce that no route signature, response field, or error code changes without a versioning strategy — escalate violations to CRITICAL.',
+      type: 'rubric',
+      source: 'manual',
+      body: API_CONTRACT_GATE_BODY,
+    },
+  ];
+
+  const skillIds: Record<string, string> = {};
+  for (const s of seedSkills) {
+    let [existingSkill] = await db
+      .select({ id: t.skills.id })
+      .from(t.skills)
+      .where(and(eq(t.skills.workspaceId, workspaceId), eq(t.skills.name, s.name)));
+    if (!existingSkill) {
+      const [inserted] = await db
+        .insert(t.skills)
+        .values({ workspaceId, ...s, enabled: true, version: 1 })
+        .returning({ id: t.skills.id });
+      // Snapshot v1 with change note "Initial"
+      await db
+        .insert(t.skillVersions)
+        .values({ skillId: inserted!.id, version: 1, body: s.body, note: 'Initial' });
+      existingSkill = inserted!;
+    }
+    skillIds[s.name] = existingSkill!.id;
+  }
+
+  // ---- L02: demo agents (Test Quality + API Contract) ----
+  // Seeded with enabled=true so the control experiment works out of the box.
+  // No agentVersions snapshot — the existing starter agents are not snapshotted either.
+  const l02Agents: Array<typeof t.agents.$inferInsert> = [
+    {
+      workspaceId,
+      name: 'Test Quality Reviewer',
+      description:
+        'Flags untested branches, missing corner cases, over-mocking antipatterns, and flaky test patterns.',
+      provider: DEFAULT_PROVIDER,
+      model: DEFAULT_MODEL,
+      systemPrompt: TEST_QUALITY_REVIEWER_PROMPT,
+      enabled: true,
+      version: 1,
+      createdBy: userId,
+    },
+    {
+      workspaceId,
+      name: 'API Contract Reviewer',
+      description: 'Detects breaking route/signature changes before they reach deployed callers.',
+      provider: DEFAULT_PROVIDER,
+      model: DEFAULT_MODEL,
+      systemPrompt: API_CONTRACT_REVIEWER_PROMPT,
+      enabled: true,
+      version: 1,
+      createdBy: userId,
+    },
+  ];
+
+  const agentIds: Record<string, string> = {};
+  for (const a of l02Agents) {
+    let [existingAgent] = await db
+      .select({ id: t.agents.id })
+      .from(t.agents)
+      .where(and(eq(t.agents.workspaceId, workspaceId), eq(t.agents.name, a.name!)));
+    if (!existingAgent) {
+      const [inserted] = await db.insert(t.agents).values(a).returning({ id: t.agents.id });
+      existingAgent = inserted!;
+    }
+    agentIds[a.name!] = existingAgent!.id;
+  }
+
+  // ---- L02: agent_skills links ----
+  // enabled=true on every link so the "with skills" path is the default.
+  // The operator disables a link to get the "without skills" baseline
+  // (control experiment per §7 of skills-feature-spec.md).
+  // onConflictDoNothing makes re-runs safe (PK = agentId + skillId).
+  const agentSkillLinks: Array<{ agentName: string; skillName: string; order: number }> = [
+    { agentName: 'Test Quality Reviewer', skillName: 'Test Coverage Nudge', order: 0 },
+    { agentName: 'Test Quality Reviewer', skillName: 'Test Quality Patterns', order: 1 },
+    { agentName: 'API Contract Reviewer', skillName: 'API Contract Gate', order: 0 },
+  ];
+  for (const link of agentSkillLinks) {
+    const agentId = agentIds[link.agentName];
+    const skillId = skillIds[link.skillName];
+    if (agentId && skillId) {
+      await db
+        .insert(t.agentSkills)
+        .values({ agentId, skillId, order: link.order, enabled: true })
+        .onConflictDoNothing();
+    }
   }
 
   return { workspaceId, userId };

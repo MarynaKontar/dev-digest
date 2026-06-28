@@ -153,6 +153,10 @@ export class ReviewRunExecutor {
 
     runLog.info(`Starting review with agent "${agent.name}" (${agent.provider}/${agent.model})`);
 
+    // Capture resolved skills before the try-catch so the failure-path
+    // traceFromBuffer can include them in prompt_assembly (cosmetic fix).
+    let resolvedSkillsBlock: string | null = null;
+
     try {
       // Resolve the agent's LLM provider. (container.llm throws if the provider
       // key is missing — caught below and persisted as a failed run.)
@@ -161,6 +165,16 @@ export class ReviewRunExecutor {
         () => this.container.llm(agent.provider as Provider),
         { kind: 'tool' },
       );
+
+      // Load enabled skills for this agent and inject them into the prompt.
+      // Both link.enabled AND skill.enabled must be true (per-agent flag AND
+      // library-level flag). Skills are ordered by `order` ascending (linkedSkills).
+      const links = await this.agents.linkedSkills(agent.id);
+      const skillBodies = links
+        .filter((l) => l.enabled && l.skill.enabled)
+        .map((l) => l.skill.body);
+      resolvedSkillsBlock = skillBodies.length > 0 ? skillBodies.join('\n\n') : null;
+      runLog.info(`skills: ${skillBodies.length} enabled block(s) injected`);
 
       // Per-agent repo-intel toggle (Agent editor). When an agent opts out we
       // skip all enrichment entirely so its prompt is identical to the
@@ -193,6 +207,10 @@ export class ReviewRunExecutor {
         model: agent.model,
         diff,
         llm,
+        // Skills — injected only when at least one is doubly-enabled (link.enabled
+        // && skill.enabled). assemblePrompt emits the `## Skills / rules` block
+        // and sets assembly.skills, which flows to the run trace.
+        ...(skillBodies.length > 0 ? { skills: skillBodies } : {}),
         // Per-agent review strategy (configured in the Agent editor); falls back
         // to the studio default. single-pass = whole diff in one call.
         strategy: agent.strategy ?? REVIEW_STRATEGY,
@@ -310,7 +328,7 @@ export class ReviewRunExecutor {
         })
         .catch(() => undefined);
       await this.repo
-        .saveRunTrace(runId, this.traceFromBuffer(runId, pull, agent, '0/0 passed', Date.now() - start))
+        .saveRunTrace(runId, this.traceFromBuffer(runId, pull, agent, '0/0 passed', Date.now() - start, resolvedSkillsBlock))
         .catch(() => undefined);
       this.container.runBus.complete(runId);
       throw err;
@@ -408,6 +426,10 @@ export class ReviewRunExecutor {
    * A minimal RunTrace whose `log` is the run's full SSE buffer — persisted on
    * failure/cancel (and pre-work failures) so the events (and WHY it failed)
    * survive a reload, not just the in-memory stream.
+   *
+   * `skillsBlock` is the resolved skills text (if skills were loaded before the
+   * failure) so prompt_assembly.skills reflects what was (or would have been)
+   * injected — cosmetic but useful when debugging a failed run.
    */
   private traceFromBuffer(
     runId: string,
@@ -415,6 +437,7 @@ export class ReviewRunExecutor {
     agent: AgentRow,
     grounding: string,
     durationMs = 0,
+    skillsBlock: string | null = null,
   ): RunTrace {
     return {
       config: {
@@ -426,7 +449,7 @@ export class ReviewRunExecutor {
         source: 'local',
       },
       stats: { duration_ms: durationMs, tokens_in: 0, tokens_out: 0, findings: 0, grounding, cost_usd: null },
-      prompt_assembly: { system: agent.systemPrompt, skills: null, memory: null, specs: null, user: '' },
+      prompt_assembly: { system: agent.systemPrompt, skills: skillsBlock, memory: null, specs: null, user: '' },
       tool_calls: [],
       raw_output: '',
       memory_pulled: [],
