@@ -181,15 +181,69 @@ export const SkillStats = z.object({
 export type SkillStats = z.infer<typeof SkillStats>;
 
 // ---- Conventions ----
+export const ConventionStatus = z.enum(['suggested', 'accepted', 'rejected']);
+export type ConventionStatus = z.infer<typeof ConventionStatus>;
+
+// What the model returns (server-internal; validated by completeStructured).
+// Matches the required user-message contract exactly — NO category, NO line.
+export const ConventionExtractionItem = z.object({
+  rule: z.string(),             // imperative: "Always…/Never…/Use X instead of Y"
+  evidence_path: z.string(),    // relative path
+  evidence_snippet: z.string(), // 2–5 lines of exact code
+  confidence: z.number().min(0).max(1),
+});
+export type ConventionExtractionItem = z.infer<typeof ConventionExtractionItem>;
+
+export const ConventionExtraction = z.object({ candidates: z.array(ConventionExtractionItem) });
+export type ConventionExtraction = z.infer<typeof ConventionExtraction>;
+
+// Public candidate (replaces the old ConventionCandidate). `evidence_line` is
+// COMPUTED by the verification step, not returned by the model.
 export const ConventionCandidate = z.object({
   id: z.string(),
+  repo_id: z.string(),
   rule: z.string(),
   evidence_path: z.string(),
+  evidence_line: z.number().int(),
   evidence_snippet: z.string(),
+  evidence_url: z.string(),        // GitHub blob deep-link w/ #Lnn
   confidence: z.number().min(0).max(1),
-  accepted: z.boolean(),
+  status: ConventionStatus,
+  skill_id: z.string().nullable(), // set once materialised
 });
 export type ConventionCandidate = z.infer<typeof ConventionCandidate>;
+
+export const ConventionScan = z.object({
+  id: z.string(),
+  repo_id: z.string(),
+  sample_count: z.number().int(),
+  model: z.string(),
+  created_at: z.string(),
+});
+export type ConventionScan = z.infer<typeof ConventionScan>;
+
+export const ConventionsView = z.object({
+  scan: ConventionScan.nullable(),
+  candidates: z.array(ConventionCandidate),
+});
+export type ConventionsView = z.infer<typeof ConventionsView>;
+
+// Request bodies
+export const JudgeConventionBody = z.object({ status: ConventionStatus });
+export type JudgeConventionBody = z.infer<typeof JudgeConventionBody>;
+
+export const JudgeConventionsBody = z.object({ ids: z.array(z.string()), status: ConventionStatus });
+export type JudgeConventionsBody = z.infer<typeof JudgeConventionsBody>;
+
+export const CreateConventionSkillBody = z.object({
+  candidate_ids: z.array(z.string()).min(1),
+  name: z.string().min(1),
+  description: z.string(),
+  type: SkillType.default('convention'),
+  enabled: z.boolean().default(true),
+  body: z.string().min(1), // the user-edited merged markdown
+});
+export type CreateConventionSkillBody = z.infer<typeof CreateConventionSkillBody>;
 
 // ---- Agents ----
 // 'openrouter' routes through the OpenAI-compatible API (OpenAIProvider with a

@@ -343,6 +343,73 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
     }
   }
 
+  // ---- Lxx: conventions seed (idempotent: guard on existing scan for the repo) ----
+  // Seeds one convention_scans row + three candidates (one per status) for the
+  // demo repo so the Conventions page renders without a live model call.
+  const [existingConventionScan] = await db
+    .select({ id: t.conventionScans.id })
+    .from(t.conventionScans)
+    .where(eq(t.conventionScans.repoId, repoId))
+    .limit(1);
+
+  if (!existingConventionScan) {
+    const [conventionScan] = await db
+      .insert(t.conventionScans)
+      .values({
+        workspaceId,
+        repoId,
+        sampleCount: 6,
+        provider: DEFAULT_PROVIDER,
+        model: DEFAULT_MODEL,
+      })
+      .returning();
+
+    await db.insert(t.conventions).values([
+      {
+        workspaceId,
+        repoId,
+        rule: 'Always use Zod schemas for request body validation in Fastify routes',
+        evidencePath: 'src/api/routes.ts',
+        evidenceLine: 12,
+        evidenceSnippet:
+          'const CreateBodySchema = z.object({\n  name: z.string().min(1),\n  amount: z.number().positive(),\n});',
+        evidenceUrl:
+          'https://github.com/acme/payments-api/blob/main/src/api/routes.ts#L12',
+        confidence: 0.92,
+        status: 'accepted',
+        scanId: conventionScan!.id,
+      },
+      {
+        workspaceId,
+        repoId,
+        rule: 'Use async/await consistently — never mix .then() callbacks with await in the same function',
+        evidencePath: 'src/services/payment.ts',
+        evidenceLine: 28,
+        evidenceSnippet:
+          'async function processPayment(id: string): Promise<Receipt> {\n  const payment = await repo.getById(id);\n  const receipt = await stripe.confirm(payment.intentId);\n  return receipt;\n}',
+        evidenceUrl:
+          'https://github.com/acme/payments-api/blob/main/src/services/payment.ts#L28',
+        confidence: 0.87,
+        status: 'suggested',
+        scanId: conventionScan!.id,
+      },
+      {
+        workspaceId,
+        repoId,
+        rule: 'Use implicit return types in short arrow functions',
+        evidencePath: 'src/utils/format.ts',
+        evidenceLine: 5,
+        evidenceSnippet:
+          'export const formatAmount = (cents: number) => (cents / 100).toFixed(2);',
+        evidenceUrl:
+          'https://github.com/acme/payments-api/blob/main/src/utils/format.ts#L5',
+        confidence: 0.64,
+        status: 'rejected',
+        scanId: conventionScan!.id,
+      },
+    ]);
+  }
+
   return { workspaceId, userId };
 }
 
