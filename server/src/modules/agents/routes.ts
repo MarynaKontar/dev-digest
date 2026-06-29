@@ -56,16 +56,38 @@ const UpdateAgentBody = z.object({
   enabled: z.boolean().optional(),
 });
 
-/** Either set the whole ordered set (`skill_ids`) or link one (`skill_id`). */
+/** Single skill entry for the bulk-upsert form. */
+const SkillEntry = z.object({
+  skill_id: z.string().uuid(),
+  order: z.number().int().min(0),
+  enabled: z.boolean(),
+});
+
+/**
+ * Three accepted forms for POST /agents/:id/skills:
+ *   1. `skills` — new bulk form: full ordered list with per-entry enabled flag
+ *      (Skills checklist tab; replaces the whole set).
+ *   2. `skill_ids` — legacy: set/reorder all linked skills (all enabled=true).
+ *   3. `skill_id` — legacy: link one skill additively (optionally with order+enabled).
+ */
 const SetSkillsBody = z
   .object({
+    skills: z.array(SkillEntry).optional(),
     skill_ids: z.array(z.string().uuid()).optional(),
     skill_id: z.string().uuid().optional(),
     order: z.number().int().optional(),
+    enabled: z.boolean().optional(),
   })
-  .refine((b) => b.skill_ids !== undefined || b.skill_id !== undefined, {
-    message: 'Provide skill_ids (set/reorder) or skill_id (link one)',
-  });
+  .refine(
+    (b) => b.skills !== undefined || b.skill_ids !== undefined || b.skill_id !== undefined,
+    { message: 'Provide skills (bulk), skill_ids (set/reorder), or skill_id (link one)' },
+  );
+
+/** Params for PATCH /agents/:id/skills/:skillId */
+const SkillLinkParams = z.object({ id: z.string().uuid(), skillId: z.string().uuid() });
+
+/** Body for PATCH /agents/:id/skills/:skillId — single fast enable/disable toggle. */
+const ToggleSkillBody = z.object({ enabled: z.boolean() });
 
 export default async function agentsRoutes(appBase: FastifyInstance) {
   const app = appBase.withTypeProvider<ZodTypeProvider>();
@@ -155,11 +177,44 @@ export default async function agentsRoutes(appBase: FastifyInstance) {
     async (req) => {
       const { workspaceId } = await getContext(app.container, req);
       const body = req.body;
-      const links =
-        body.skill_ids !== undefined
-          ? await service.setSkills(workspaceId, req.params.id, body.skill_ids)
-          : await service.linkSkill(workspaceId, req.params.id, body.skill_id!, body.order);
+      let links;
+      if (body.skills !== undefined) {
+        // New bulk form: full ordered list with per-entry enabled flag.
+        links = await service.setBulkSkills(workspaceId, req.params.id, body.skills);
+      } else if (body.skill_ids !== undefined) {
+        // Legacy: set/reorder all (all default to enabled=true).
+        links = await service.setSkills(workspaceId, req.params.id, body.skill_ids);
+      } else {
+        // Legacy: link one additively with optional order + enabled.
+        links = await service.linkSkill(
+          workspaceId,
+          req.params.id,
+          body.skill_id!,
+          body.order,
+          body.enabled,
+        );
+      }
       if (!links) throw new NotFoundError('Agent not found');
+      return links;
+    },
+  );
+
+  /**
+   * PATCH /agents/:id/skills/:skillId — fast per-link enable/disable toggle.
+   * Lets the control experiment flip a single skill without a full save cycle.
+   */
+  app.patch(
+    '/agents/:id/skills/:skillId',
+    { schema: { params: SkillLinkParams, body: ToggleSkillBody } },
+    async (req) => {
+      const { workspaceId } = await getContext(app.container, req);
+      const links = await service.toggleSkill(
+        workspaceId,
+        req.params.id,
+        req.params.skillId,
+        req.body.enabled,
+      );
+      if (!links) throw new NotFoundError('Agent or skill link not found');
       return links;
     },
   );

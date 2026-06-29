@@ -1,7 +1,8 @@
-import { pgTable, uuid, text, jsonb, timestamp, doublePrecision, boolean, vector, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, jsonb, timestamp, doublePrecision, boolean, vector, index, integer } from 'drizzle-orm/pg-core';
 import { now } from './_shared';
 import { workspaces } from './core';
 import { repos } from './repos';
+import { skills } from './skills';
 
 // ============================================================ Knowledge / RAG
 
@@ -28,6 +29,20 @@ export const memory = pgTable(
   (t) => ({ wsIdx: index('memory_ws_idx').on(t.workspaceId) }),
 );
 
+export const conventionScans = pgTable('convention_scans', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  workspaceId: uuid('workspace_id')
+    .notNull()
+    .references(() => workspaces.id, { onDelete: 'cascade' }),
+  repoId: uuid('repo_id')
+    .notNull()
+    .references(() => repos.id, { onDelete: 'cascade' }),
+  sampleCount: integer('sample_count').notNull(),
+  provider: text('provider').notNull(),
+  model: text('model').notNull(),
+  createdAt: now(),
+});
+
 export const conventions = pgTable('conventions', {
   id: uuid('id').primaryKey().defaultRandom(),
   workspaceId: uuid('workspace_id')
@@ -37,6 +52,11 @@ export const conventions = pgTable('conventions', {
   rule: text('rule').notNull(),
   evidencePath: text('evidence_path'),
   evidenceSnippet: text('evidence_snippet'),
+  evidenceLine: integer('evidence_line'),
+  evidenceUrl: text('evidence_url').notNull().default(''),
   confidence: doublePrecision('confidence'),
-  accepted: boolean('accepted').notNull().default(false),
+  status: text('status', { enum: ['suggested', 'accepted', 'rejected'] }).notNull().default('suggested'),
+  skillId: uuid('skill_id').references(() => skills.id, { onDelete: 'set null' }),
+  scanId: uuid('scan_id').references(() => conventionScans.id, { onDelete: 'cascade' }),
+  createdAt: now(),
 });

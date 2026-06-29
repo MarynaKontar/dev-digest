@@ -6,7 +6,7 @@
  *   withTokens — "{N tok · $cost}"; used in the agent-runs timeline.
  */
 import React from "react";
-import { formatCost } from "@/lib/cost";
+import { formatCost } from "@/utils/cost";
 
 const mutedStyle: React.CSSProperties = { color: "var(--text-muted)" };
 

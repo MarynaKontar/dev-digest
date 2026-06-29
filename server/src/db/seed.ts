@@ -6,6 +6,11 @@ import {
   GENERAL_REVIEWER_PROMPT,
   SECURITY_REVIEWER_PROMPT,
   PERFORMANCE_REVIEWER_PROMPT,
+  TEST_QUALITY_REVIEWER_PROMPT,
+  API_CONTRACT_REVIEWER_PROMPT,
+  TEST_COVERAGE_NUDGE_BODY,
+  TEST_QUALITY_PATTERNS_BODY,
+  API_CONTRACT_GATE_BODY,
 } from './seed-prompts.js';
 
 /** Default provider/model for the built-in reviewer agents. */
@@ -218,6 +223,191 @@ export async function seed(db: Db): Promise<{ workspaceId: string; userId: strin
       .from(t.agents)
       .where(and(eq(t.agents.workspaceId, workspaceId), eq(t.agents.name, a.name)));
     if (!existing) await db.insert(t.agents).values(a);
+  }
+
+  // ---- L02: skills (idempotent: upsert by name+workspace) ----
+  // Each skill gets a v1 skill_versions snapshot on first insert (note: "Initial").
+  const seedSkills: Array<{
+    name: string;
+    description: string;
+    type: (typeof t.skills.$inferInsert)['type'];
+    source: (typeof t.skills.$inferInsert)['source'];
+    body: string;
+  }> = [
+    {
+      name: 'Test Coverage Nudge',
+      description:
+        'Require every new conditional branch and error path to have a corresponding test — flag missing coverage as a CRITICAL gap.',
+      type: 'rubric',
+      source: 'manual',
+      body: TEST_COVERAGE_NUDGE_BODY,
+    },
+    {
+      name: 'Test Quality Patterns',
+      description:
+        'Flag over-mocking antipatterns, flaky test signals, and weak assertions — community-imported standards for TypeScript/Node.js projects.',
+      type: 'custom',
+      source: 'community',
+      body: TEST_QUALITY_PATTERNS_BODY,
+    },
+    {
+      name: 'API Contract Gate',
+      description:
+        'Enforce that no route signature, response field, or error code changes without a versioning strategy — escalate violations to CRITICAL.',
+      type: 'rubric',
+      source: 'manual',
+      body: API_CONTRACT_GATE_BODY,
+    },
+  ];
+
+  const skillIds: Record<string, string> = {};
+  for (const s of seedSkills) {
+    let [existingSkill] = await db
+      .select({ id: t.skills.id })
+      .from(t.skills)
+      .where(and(eq(t.skills.workspaceId, workspaceId), eq(t.skills.name, s.name)));
+    if (!existingSkill) {
+      const [inserted] = await db
+        .insert(t.skills)
+        .values({ workspaceId, ...s, enabled: true, version: 1 })
+        .returning({ id: t.skills.id });
+      // Snapshot v1 with change note "Initial"
+      await db
+        .insert(t.skillVersions)
+        .values({ skillId: inserted!.id, version: 1, body: s.body, note: 'Initial' });
+      existingSkill = inserted!;
+    }
+    skillIds[s.name] = existingSkill!.id;
+  }
+
+  // ---- L02: demo agents (Test Quality + API Contract) ----
+  // Seeded with enabled=true so the control experiment works out of the box.
+  // No agentVersions snapshot — the existing starter agents are not snapshotted either.
+  const l02Agents: Array<typeof t.agents.$inferInsert> = [
+    {
+      workspaceId,
+      name: 'Test Quality Reviewer',
+      description:
+        'Flags untested branches, missing corner cases, over-mocking antipatterns, and flaky test patterns.',
+      provider: DEFAULT_PROVIDER,
+      model: DEFAULT_MODEL,
+      systemPrompt: TEST_QUALITY_REVIEWER_PROMPT,
+      enabled: true,
+      version: 1,
+      createdBy: userId,
+    },
+    {
+      workspaceId,
+      name: 'API Contract Reviewer',
+      description: 'Detects breaking route/signature changes before they reach deployed callers.',
+      provider: DEFAULT_PROVIDER,
+      model: DEFAULT_MODEL,
+      systemPrompt: API_CONTRACT_REVIEWER_PROMPT,
+      enabled: true,
+      version: 1,
+      createdBy: userId,
+    },
+  ];
+
+  const agentIds: Record<string, string> = {};
+  for (const a of l02Agents) {
+    let [existingAgent] = await db
+      .select({ id: t.agents.id })
+      .from(t.agents)
+      .where(and(eq(t.agents.workspaceId, workspaceId), eq(t.agents.name, a.name!)));
+    if (!existingAgent) {
+      const [inserted] = await db.insert(t.agents).values(a).returning({ id: t.agents.id });
+      existingAgent = inserted!;
+    }
+    agentIds[a.name!] = existingAgent!.id;
+  }
+
+  // ---- L02: agent_skills links ----
+  // enabled=true on every link so the "with skills" path is the default.
+  // The operator disables a link to get the "without skills" baseline
+  // (control experiment per §7 of skills-feature-spec.md).
+  // onConflictDoNothing makes re-runs safe (PK = agentId + skillId).
+  const agentSkillLinks: Array<{ agentName: string; skillName: string; order: number }> = [
+    { agentName: 'Test Quality Reviewer', skillName: 'Test Coverage Nudge', order: 0 },
+    { agentName: 'Test Quality Reviewer', skillName: 'Test Quality Patterns', order: 1 },
+    { agentName: 'API Contract Reviewer', skillName: 'API Contract Gate', order: 0 },
+  ];
+  for (const link of agentSkillLinks) {
+    const agentId = agentIds[link.agentName];
+    const skillId = skillIds[link.skillName];
+    if (agentId && skillId) {
+      await db
+        .insert(t.agentSkills)
+        .values({ agentId, skillId, order: link.order, enabled: true })
+        .onConflictDoNothing();
+    }
+  }
+
+  // ---- Lxx: conventions seed (idempotent: guard on existing scan for the repo) ----
+  // Seeds one convention_scans row + three candidates (one per status) for the
+  // demo repo so the Conventions page renders without a live model call.
+  const [existingConventionScan] = await db
+    .select({ id: t.conventionScans.id })
+    .from(t.conventionScans)
+    .where(eq(t.conventionScans.repoId, repoId))
+    .limit(1);
+
+  if (!existingConventionScan) {
+    const [conventionScan] = await db
+      .insert(t.conventionScans)
+      .values({
+        workspaceId,
+        repoId,
+        sampleCount: 6,
+        provider: DEFAULT_PROVIDER,
+        model: DEFAULT_MODEL,
+      })
+      .returning();
+
+    await db.insert(t.conventions).values([
+      {
+        workspaceId,
+        repoId,
+        rule: 'Always use Zod schemas for request body validation in Fastify routes',
+        evidencePath: 'src/api/routes.ts',
+        evidenceLine: 12,
+        evidenceSnippet:
+          'const CreateBodySchema = z.object({\n  name: z.string().min(1),\n  amount: z.number().positive(),\n});',
+        evidenceUrl:
+          'https://github.com/acme/payments-api/blob/main/src/api/routes.ts#L12',
+        confidence: 0.92,
+        status: 'accepted',
+        scanId: conventionScan!.id,
+      },
+      {
+        workspaceId,
+        repoId,
+        rule: 'Use async/await consistently — never mix .then() callbacks with await in the same function',
+        evidencePath: 'src/services/payment.ts',
+        evidenceLine: 28,
+        evidenceSnippet:
+          'async function processPayment(id: string): Promise<Receipt> {\n  const payment = await repo.getById(id);\n  const receipt = await stripe.confirm(payment.intentId);\n  return receipt;\n}',
+        evidenceUrl:
+          'https://github.com/acme/payments-api/blob/main/src/services/payment.ts#L28',
+        confidence: 0.87,
+        status: 'suggested',
+        scanId: conventionScan!.id,
+      },
+      {
+        workspaceId,
+        repoId,
+        rule: 'Use implicit return types in short arrow functions',
+        evidencePath: 'src/utils/format.ts',
+        evidenceLine: 5,
+        evidenceSnippet:
+          'export const formatAmount = (cents: number) => (cents / 100).toFixed(2);',
+        evidenceUrl:
+          'https://github.com/acme/payments-api/blob/main/src/utils/format.ts#L5',
+        confidence: 0.64,
+        status: 'rejected',
+        scanId: conventionScan!.id,
+      },
+    ]);
   }
 
   return { workspaceId, userId };

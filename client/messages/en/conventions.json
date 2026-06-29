@@ -5,22 +5,47 @@
     "headingPrefix": "Conventions in ",
     "repoFallback": "repo",
     "subtitle": "Scan the cloned repo to surface house-rules — each backed by evidence you can turn into a Skill.",
+    "subtitleScan": "Detected from {count} sample files · last scan {time}",
     "scanning": "Scanning…",
     "rescan": "Re-scan",
     "runExtraction": "Run extraction",
-    "extractionFailed": "Extraction failed",
     "loadError": "Could not load conventions.",
     "empty": {
       "title": "No conventions extracted yet",
       "body": "Scan the repo to surface house-rules — naming, error handling, structure — each backed by evidence you can turn into a Skill.",
       "cta": "Run extraction"
-    },
-    "candidateCount": "{count, plural, one {# candidate} other {# candidates}} · grounded against sampled files"
+    }
+  },
+  "selection": {
+    "deselectAll": "Deselect all",
+    "counter": "{selected} of {total} accepted",
+    "createSkill": "Create skill"
   },
   "card": {
     "confidence": "Confidence",
-    "accepted": "Accepted",
-    "accepting": "Accepting…",
-    "acceptAsSkill": "Accept as Skill"
+    "copyPath": "Copy path",
+    "evidenceCopied": "Copied!",
+    "accept": "Accept",
+    "reject": "Reject",
+    "inSkill": "✓ in skill"
+  },
+  "create": {
+    "title": "Create convention skill",
+    "subtitle": "Review the merged skill body and save it to the Skills Lab.",
+    "cancel": "Cancel",
+    "create": "Create skill",
+    "creating": "Creating…",
+    "footerNote": "Saved as v1 · added to Skills Lab",
+    "fields": {
+      "name": "Name",
+      "namePlaceholder": "my-repo-conventions",
+      "description": "Description",
+      "descriptionPlaceholder": "House coding conventions",
+      "type": "Type",
+      "enabled": "Enabled",
+      "body": "Skill body (Markdown)",
+      "bodyHint": "Pre-seeded from the selected candidates. Edit freely before saving.",
+      "charCount": "~{count} chars"
+    }
   }
 }
