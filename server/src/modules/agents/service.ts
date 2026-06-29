@@ -138,12 +138,12 @@ export class AgentsService {
   /** Linked skills for an agent as AgentSkillLink[] (ordered). */
   async skillLinks(agentId: string): Promise<AgentSkillLink[]> {
     const links = await this.repo.linkedSkills(agentId);
-    return links.map((l) => ({ agent_id: agentId, skill_id: l.skill.id, order: l.order }));
+    return links.map((l) => ({ agent_id: agentId, skill_id: l.skill.id, order: l.order, enabled: l.enabled }));
   }
 
   /**
-   * Set / reorder the agent's linked skills. If `skillIds` is provided, replaces
-   * the whole set in that order. Returns the resulting ordered links.
+   * Set / reorder the agent's linked skills (legacy `skill_ids` form). Replaces
+   * the whole set in that order; all links default to enabled=true.
    */
   async setSkills(
     workspaceId: string,
@@ -156,18 +156,54 @@ export class AgentsService {
     return this.skillLinks(agentId);
   }
 
-  /** Link a single skill (append or set order) — additive to existing links. */
+  /**
+   * Bulk-upsert agent skills with explicit order + enabled (Skills checklist tab).
+   * Replaces the full set; skills sent with enabled=false are preserved in the list
+   * (their position is retained so re-checking them restores order).
+   */
+  async setBulkSkills(
+    workspaceId: string,
+    agentId: string,
+    skills: { skill_id: string; order: number; enabled: boolean }[],
+  ): Promise<AgentSkillLink[] | undefined> {
+    const agent = await this.repo.getById(workspaceId, agentId);
+    if (!agent) return undefined;
+    await this.repo.setBulkSkills(
+      agentId,
+      skills.map((s) => ({ skillId: s.skill_id, order: s.order, enabled: s.enabled })),
+    );
+    return this.skillLinks(agentId);
+  }
+
+  /** Link a single skill (append or set order + enabled) — additive to existing links. */
   async linkSkill(
     workspaceId: string,
     agentId: string,
     skillId: string,
     order?: number,
+    enabled?: boolean,
   ): Promise<AgentSkillLink[] | undefined> {
     const agent = await this.repo.getById(workspaceId, agentId);
     if (!agent) return undefined;
     const existing = await this.repo.linkedSkills(agentId);
     const resolvedOrder = order ?? existing.length;
-    await this.repo.linkSkill(agentId, skillId, resolvedOrder);
+    await this.repo.linkSkill(agentId, skillId, resolvedOrder, enabled ?? true);
+    return this.skillLinks(agentId);
+  }
+
+  /**
+   * Toggle the per-link enabled flag for a single skill without touching order.
+   * Used by `PATCH /agents/:id/skills/:skillId { enabled }`.
+   */
+  async toggleSkill(
+    workspaceId: string,
+    agentId: string,
+    skillId: string,
+    enabled: boolean,
+  ): Promise<AgentSkillLink[] | undefined> {
+    const agent = await this.repo.getById(workspaceId, agentId);
+    if (!agent) return undefined;
+    await this.repo.toggleSkillEnabled(agentId, skillId, enabled);
     return this.skillLinks(agentId);
   }
 

@@ -6,7 +6,7 @@
 import React from "react";
 import { useTranslations } from "next-intl";
 import { Skeleton, Icon } from "@devdigest/ui";
-import { usePrReviews } from "@/lib/hooks";
+import { usePrReviews } from "@/hooks";
 import { FindingMiniCard } from "../FindingMiniCard/FindingMiniCard";
 
 const SEV_ORDER: Record<string, number> = { CRITICAL: 0, WARNING: 1, SUGGESTION: 2 };
