@@ -34,13 +34,41 @@ export default function PRDetailPage() {
 
   const tab = search.get("tab") ?? "overview";
   const traceRunId = search.get("trace");
+  const focus = search.get("focus");
+  const findingId = search.get("findingId");
   const setParam = (key: string, val: string | null) => {
     const sp = new URLSearchParams(search.toString());
     if (val == null) sp.delete(key);
     else sp.set(key, val);
     router.replace(`/repos/${repoId}/pulls/${number}${sp.toString() ? `?${sp.toString()}` : ""}`);
   };
-  const setTab = (t: string) => setParam("tab", t);
+  // Manual tab switches clear any finding deep-link params so they don't re-fire
+  // on a later revisit (the goToX helpers set tab + param together, bypassing this).
+  const setTab = (t: string) => {
+    const sp = new URLSearchParams(search.toString());
+    sp.set("tab", t);
+    sp.delete("focus");
+    sp.delete("findingId");
+    router.replace(`/repos/${repoId}/pulls/${number}?${sp.toString()}`);
+  };
+
+  // Jump a finding's file:line (Agent runs tab) straight to that line in the diff.
+  // Sets tab + focus in one nav; SmartDiffView scrolls to the line's anchor.
+  const goToFileLine = (file: string, line: number) => {
+    const sp = new URLSearchParams(search.toString());
+    sp.set("tab", "diff");
+    sp.set("focus", `${file}:${line}`);
+    router.replace(`/repos/${repoId}/pulls/${number}?${sp.toString()}`);
+  };
+
+  // Click a diff severity badge → Findings tab with the FindingCard expanded.
+  const goToFinding = (id: string) => {
+    const sp = new URLSearchParams(search.toString());
+    sp.set("tab", "findings");
+    sp.set("findingId", id);
+    sp.delete("focus");
+    router.replace(`/repos/${repoId}/pulls/${number}?${sp.toString()}`);
+  };
 
   const handleDeleteRun = (id: string) => {
     if (window.confirm("Delete this run from history? (its logs are removed too)"))
@@ -90,7 +118,7 @@ export default function PRDetailPage() {
       />
 
       <div style={{ padding: "24px 32px 44px", display: "flex", flexDirection: "column", gap: 24, maxWidth: 1080, margin: "0 auto" }}>
-        {tab === "overview" && <OverviewTab prBody={pr.body} />}
+        {tab === "overview" && <OverviewTab prBody={pr.body} prId={prId} />}
 
         {tab === "findings" && (
           <FindingsTab
@@ -111,6 +139,8 @@ export default function PRDetailPage() {
               invalidateRunHistory();
               refetchReviews();
             }}
+            onGoToFile={goToFileLine}
+            focusFindingId={findingId}
           />
         )}
 
@@ -120,6 +150,8 @@ export default function PRDetailPage() {
             filesCount={pr.files_count}
             files={pr.files}
             canComment={pr.status === "open"}
+            focus={focus}
+            onFindingClick={goToFinding}
           />
         )}
       </div>

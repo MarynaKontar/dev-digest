@@ -66,6 +66,13 @@ export interface PromptParts {
    * undefined → section omitted.
    */
   prDescription?: string;
+  /**
+   * Resolved PR intent string (untrusted — derived from the PR body and any
+   * linked plan/spec). Delimiter-wrapped. Rendered immediately after the PR
+   * description section with a trusted scope-narrowing rule. Empty / undefined
+   * → section omitted (prompt byte-identical to the no-intent path).
+   */
+  intent?: string;
   /** The unified diff / user task (untrusted content). */
   diff: string;
   /** Optional task framing line, e.g. "Review PR #482 '…'". */
@@ -101,10 +108,21 @@ export function assemblePrompt(parts: PromptParts): AssembledPrompt {
       ? parts.prDescription.slice(0, MAX_PR_DESCRIPTION_CHARS)
       : undefined;
 
+  const intent =
+    parts.intent && parts.intent.trim().length > 0 ? parts.intent : undefined;
+
   const userSections: string[] = [];
   if (parts.task) userSections.push(parts.task);
   if (prDescription) {
     userSections.push(`## PR description\n${wrapUntrusted('pr-description', prDescription)}`);
+  }
+  if (intent) {
+    userSections.push(
+      `## PR intent\n` +
+        `Treat the block below as the PR's stated intent. Don't comment outside the stated scope; ` +
+        `if you spot a serious problem out of scope, emit exactly ONE signal finding, not many.\n` +
+        wrapUntrusted('intent', intent),
+    );
   }
   if (skillsBlock) userSections.push(`## Skills / rules\n${skillsBlock}`);
   if (memoryBlock) userSections.push(`## Relevant memory\n${memoryBlock}`);
@@ -134,6 +152,7 @@ export function assemblePrompt(parts: PromptParts): AssembledPrompt {
     callers: parts.callers ?? null,
     repo_map: parts.repoMap ?? null,
     pr_description: prDescription ?? null,
+    intent: parts.intent ?? null,
     user,
   };
 

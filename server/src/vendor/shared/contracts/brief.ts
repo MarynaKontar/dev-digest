@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { Severity } from './findings.js';
 
 /**
  * PR Brief building blocks: Intent, Blast radius, Risks, PR History,
@@ -10,6 +11,7 @@ export const Intent = z.object({
   intent: z.string(),
   in_scope: z.array(z.string()),
   out_of_scope: z.array(z.string()),
+  risk_areas: z.array(z.string()).default([]),
 });
 export type Intent = z.infer<typeof Intent>;
 
@@ -81,12 +83,26 @@ export type PrHistory = z.infer<typeof PrHistory>;
 export const SmartDiffRole = z.enum(['core', 'wiring', 'boilerplate']);
 export type SmartDiffRole = z.infer<typeof SmartDiffRole>;
 
+/**
+ * A single review finding projected onto the diff: a line range + its severity.
+ * Drives the in-diff severity badge (suggestion/warning/blocker) and the colored
+ * line highlight in the Smart Diff view.
+ */
+export const SmartDiffFinding = z.object({
+  id: z.string(),
+  severity: Severity,
+  start_line: z.number().int(),
+  end_line: z.number().int(),
+});
+export type SmartDiffFinding = z.infer<typeof SmartDiffFinding>;
+
 export const SmartDiffFile = z.object({
   path: z.string(),
   pseudocode_summary: z.string().nullish(),
   additions: z.number().int(),
   deletions: z.number().int(),
   finding_lines: z.array(z.number().int()),
+  finding_markers: z.array(SmartDiffFinding).default([]),
 });
 export type SmartDiffFile = z.infer<typeof SmartDiffFile>;
 

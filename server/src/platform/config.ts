@@ -36,7 +36,31 @@ const EnvSchema = z.object({
     (v) => (v === '' ? undefined : v),
     z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).optional(),
   ),
+  // Intent spec resolver: comma-separated host allowlist for external doc fetches.
+  // Wildcards like *.notion.so are supported (subdomain match only, NOT bare parent domain).
+  // Defaults to common public documentation hosts when unset.
+  INTENT_SPEC_ALLOWLIST: z.string().optional(),
+  // Token budget per resolved spec source (char-based approximation: chars / 4).
+  // Sources that exceed this budget are silently truncated before reaching the LLM.
+  INTENT_SPEC_MAX_TOKENS: z.coerce.number().int().positive().optional(),
 });
+
+/** Default external-fetch allowlist for the spec/plan resolver (Unit 4a). */
+const DEFAULT_INTENT_SPEC_ALLOWLIST = [
+  'github.com',
+  'raw.githubusercontent.com',
+  'gist.github.com',
+  '*.notion.so',
+  'docs.google.com',
+];
+
+function parseAllowlist(raw: string | undefined): string[] {
+  if (!raw || raw.trim() === '') return DEFAULT_INTENT_SPEC_ALLOWLIST;
+  return raw
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter((s) => s.length > 0);
+}
 
 export type AppConfig = {
   databaseUrl: string;
@@ -59,6 +83,23 @@ export type AppConfig = {
    * EXACTLY like the ripgrep-only baseline.
    */
   repoIntelEnabled: boolean;
+  /**
+   * Hostnames permitted for external spec/plan fetches (Unit 4a web-source).
+   * Supports exact hosts (`github.com`) and wildcard subdomains (`*.notion.so`).
+   * Defaults to common public doc hosts; override with INTENT_SPEC_ALLOWLIST env
+   * (comma-separated list).
+   *
+   * IMPORTANT: the web-source adapter also blocks private/loopback/link-local/
+   * cloud-metadata IPs even for hosts in this list (defense-in-depth against
+   * DNS rebinding). The allowlist is a necessary but not sufficient condition.
+   */
+  intentSpecAllowlist: string[];
+  /**
+   * Token budget per resolved spec source (char-based: chars / 4).
+   * Sources exceeding this are truncated before reaching the intent classifier.
+   * Default 6000 tokens (~24 000 chars).
+   */
+  intentSpecMaxTokens: number;
 };
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -77,5 +118,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     webOrigin: `http://localhost:${parsed.WEB_PORT}`,
     embeddingsEnabled: parsed.EMBEDDINGS_ENABLED === 'true',
     repoIntelEnabled: parsed.REPO_INTEL_ENABLED !== 'false',
+    intentSpecAllowlist: parseAllowlist(parsed.INTENT_SPEC_ALLOWLIST),
+    intentSpecMaxTokens: parsed.INTENT_SPEC_MAX_TOKENS ?? 6000,
   };
 }

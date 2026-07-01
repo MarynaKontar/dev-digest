@@ -33,6 +33,7 @@ import type {
   SecretKey,
 } from '@devdigest/shared';
 import { parseUnifiedDiff } from './git/diff-parser.js';
+import type { SpecResolver, ResolvedSpec } from './specfetch/index.js';
 
 /**
  * Deterministic MOCK adapters for tests/dev — NO real network. Each mirrors the
@@ -326,5 +327,27 @@ export class MockSecretsProvider implements SecretsProvider {
   constructor(private secrets: Partial<Record<string, string>> = {}) {}
   async get(key: SecretKey): Promise<string | undefined> {
     return this.secrets[key as string];
+  }
+}
+
+// ---------- Mock SpecResolver ----------
+
+/**
+ * Deterministic mock for the spec/plan resolver (Unit 4a).
+ *
+ * Returns an empty `ResolvedSpec[]` by default — simulating a PR body with no
+ * resolvable references — so unit tests for `IntentService` don't make real
+ * git/GitHub/HTTP calls.
+ *
+ * Override `resolved` to supply fixture specs when testing source-precedence logic.
+ */
+export class MockSpecResolver implements SpecResolver {
+  public calls: { prBody: string; repoRef: RepoRef; headSha: string }[] = [];
+
+  constructor(public resolved: ResolvedSpec[] = []) {}
+
+  async resolve(prBody: string, repoRef: RepoRef, headSha: string): Promise<ResolvedSpec[]> {
+    this.calls.push({ prBody, repoRef, headSha });
+    return this.resolved;
   }
 }

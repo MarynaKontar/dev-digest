@@ -17,11 +17,14 @@ export function FindingsPanel({
   prId,
   repoFullName,
   headSha,
+  focusFindingId,
 }: {
   findings: FindingRecord[];
   prId: string;
   repoFullName?: string | null;
   headSha?: string | null;
+  /** Deep-link from a diff badge: highlight + expand + scroll to this finding. */
+  focusFindingId?: string | null;
 }) {
   const t = useTranslations("prReview");
   const action = useFindingAction();
@@ -29,6 +32,17 @@ export function FindingsPanel({
   const [focusIdx, setFocusIdx] = React.useState(0);
 
   const shown = React.useMemo(() => visibleFindings(findings, hideLow), [findings, hideLow]);
+
+  // Deep-link: move keyboard focus to the target finding and scroll it into view.
+  React.useEffect(() => {
+    if (!focusFindingId) return;
+    const idx = shown.findIndex((f) => f.id === focusFindingId);
+    if (idx < 0) return;
+    setFocusIdx(idx);
+    document
+      .querySelector(`[data-finding-id="${focusFindingId}"]`)
+      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [focusFindingId, shown]);
 
   // j/k navigation + a/d shortcuts on the focused finding (keyboard).
   React.useEffect(() => {
@@ -63,7 +77,7 @@ export function FindingsPanel({
               key={f.id}
               f={f}
               focused={i === focusIdx}
-              defaultExpanded={i === 0}
+              defaultExpanded={focusFindingId ? f.id === focusFindingId : i === 0}
               pending={action.isPending}
               repoFullName={repoFullName}
               headSha={headSha}

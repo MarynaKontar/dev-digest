@@ -24,6 +24,10 @@ interface FindingsTabProps {
   onOpenTrace: (id: string) => void;
   onDelete: (id: string) => void;
   onRunDone: () => void;
+  /** Jump a finding's file:line to that line in the diff tab. */
+  onGoToFile?: (file: string, line: number) => void;
+  /** Deep-link (from a diff badge): open + highlight this finding's card. */
+  focusFindingId?: string | null;
 }
 
 export function FindingsTab({
@@ -40,6 +44,8 @@ export function FindingsTab({
   onOpenTrace,
   onDelete,
   onRunDone,
+  onGoToFile,
+  focusFindingId,
 }: FindingsTabProps) {
   const handleCancelAll = useCallback(() => {
     liveRunIds.forEach((id) => cancelMutation.mutate(id));
@@ -134,6 +140,7 @@ export function FindingsTab({
             reviews={runs}
             onOpenTrace={handleOpenTrace}
             onGoToReview={handleGoToReview}
+            onGoToFile={onGoToFile}
             onDelete={handleDelete}
           />
         </div>
@@ -165,6 +172,7 @@ export function FindingsTab({
             headSha={headSha}
             targetRunId={target?.runId ?? null}
             targetNonce={target?.n ?? 0}
+            focusFindingId={focusFindingId}
           />
         ))
       )}

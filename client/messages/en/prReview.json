@@ -58,7 +58,13 @@
     "largeBody": "Consider splitting it into smaller, focused PRs for easier review:",
     "filesCount": "{count} files",
     "findingLines": "{count} finding-lines",
-    "groupedByRole": "Smart Diff · grouped by role"
+    "groupedByRole": "Smart Diff · grouped by role",
+    "smartOrder": "Smart order",
+    "originalOrder": "Original order",
+    "findingsBadge": "{count} findings",
+    "whatThisDoes": "What this does:",
+    "summaryDefines": "Defines {symbols}",
+    "summaryChanges": "{additions} added / {deletions} removed lines"
   },
   "list": {
     "breadcrumb": "Pull Requests",
@@ -111,5 +117,18 @@
     "goToReview": "Jump to this run’s findings below",
     "openTrace": "Open run trace & logs",
     "deleteRun": "Delete run"
+  },
+  "intent": {
+    "title": "PR Intent",
+    "recompute": "Recompute",
+    "ariaRecompute": "Recompute PR intent",
+    "inScope": "In Scope",
+    "outOfScope": "Out of Scope",
+    "riskAreas": "Risk Areas",
+    "none": "None",
+    "emptyTitle": "Intent not yet computed",
+    "emptyBody": "Click Recompute to classify this PR’s intent.",
+    "errorTitle": "Couldn’t load intent",
+    "errorBody": "The intent classification could not be loaded."
   }
 }

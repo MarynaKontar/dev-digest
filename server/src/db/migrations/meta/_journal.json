@@ -99,6 +99,13 @@
       "when": 1782661782328,
       "tag": "0013_young_rawhide_kid",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1782840455268,
+      "tag": "0014_lean_gargoyle",
+      "breakpoints": true
     }
   ]
 }

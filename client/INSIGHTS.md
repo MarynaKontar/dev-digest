@@ -22,12 +22,15 @@
 ## Tool & Library Notes
 <!-- Dependency quirks -->
 - `src/vendor/shared/contracts` is a COPY of `server/src/vendor/shared/contracts`. A contract change (e.g. adding `cost_usd` to `RunSummary`/`RunStats`/`PrMeta`) must be applied IDENTICALLY to both copies or types drift between client and server. Edit both in the same change; don't "fix" the client copy alone.
+- `FileCard` and `DiffViewer` from `@/components/diff-viewer` use `useTranslations("shell")` — tests that render these components must either provide the "shell" i18n messages or mock the components. The barrel (`@/components/diff-viewer/index.ts`) only exports `DiffViewer` and `DiffCommentApi`; `FileCard` is available at `@/components/diff-viewer/FileCard` (the sub-path works fine with the Vitest `@` alias). Prefer mocking both in tests to keep them i18n-namespace-isolated.
 
 ## Recurring Errors & Fixes
 <!-- Repeated error + the fix -->
 - `noUncheckedIndexedAccess` in tsconfig causes `arr[0]` to type as `T | undefined` even in tests — always use `arr[0]!` when you know the element exists, or `find()` + a `expect(x).toBeDefined()` guard. Pattern seen in SkillCard.test.tsx and SkillsTab.test.tsx.
 - TS5076: `'??' and '||' operations cannot be mixed without parentheses` — always parenthesise: `(a ?? b) || c`, not `a ?? b || c`. Seen in disabled props that combine optional booleans (`isPending?: boolean`) with additional conditions.
 - `screen.getByText("X")` fails when a modal has both a heading and a button with the same label (e.g., "Create skill"). Use `getAllByText("X").length >= 1` or `getAllByRole("button").find(b => b.textContent?.includes("X"))` for the submit button specifically.
+- `@testing-library/user-event` is NOT installed in the client package (only `@testing-library/react` + `jsdom` are in devDependencies). All interaction tests MUST use `fireEvent` from `@testing-library/react` — importing `userEvent` throws a "Failed to resolve import" error at test-collection time and silently skips the entire test file. Do not add `userEvent.setup()` patterns; use `fireEvent.click(el)` etc. instead.
+- `icon="AlertCircle"` causes a TS2322 type error — `AlertCircle` is NOT in the `@devdigest/ui` Icon map. Available alert/warning icons are `AlertTriangle` and `AlertOctagon`. Always check the `Icon` object in `src/vendor/ui/icons.tsx` before specifying an icon name; the type error message lists all valid names but is very long.
 
 ## Session Notes
 <!-- Datestamped session summaries -->
@@ -39,3 +42,7 @@
 ## Open Questions
 <!-- Still unresolved -->
 <!-- 2026-06-28 conventions session: no open questions remaining. -->
+
+## Session Notes (continued)
+- 2026-06-30 — Intent card (Unit 6): `client/src/hooks/intent.ts` (`usePrIntent` + `useRecomputeIntent`), `IntentCard/{IntentCard.tsx,styles.ts,index.ts}`, `OverviewTab.tsx` (added `prId` prop, renders `<IntentCard>` above description), `messages/en/prReview.json` (added `intent` namespace). Typecheck clean; all 58 tests pass. Key pattern: `SectionLabel` from `@devdigest/ui` has a `right?: React.ReactNode` prop that renders with `marginLeft: auto` — use it to place the recompute button in the card header without a wrapper div. `Button` from `@devdigest/ui` accepts `aria-label` as an HTML attribute (via `ButtonProps extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, "children">`) so icon-only buttons can use it directly with `aria-label` for accessibility. TQ v5: when `enabled: false`, `isLoading` is `false` (= `isPending && isFetching` = `pending && idle` = false), so a disabled query falls through to the data render with `data = undefined`, naturally showing the empty state via `data ?? null`.
+- 2026-07-01 — Smart Diff client (Unit 3): `hooks/smart-diff.ts` (`useSmartDiff`), `DiffTab/SmartDiffView.tsx` (grouped diff view), `DiffTab/FindingsBadge.tsx`, `DiffTab/constants.ts`, `DiffTab/styles.ts`, `DiffTab/DiffTab.tsx` (edit: toggle + smart-diff rendering), `DiffTab/DiffTab.test.tsx` (3 new tests). i18n: added `smartOrder`, `originalOrder`, `findingsBadge` to `messages/en/prReview.json` `smartDiff` namespace. Typecheck clean; 67 tests pass. New gotchas recorded below in relevant sections.

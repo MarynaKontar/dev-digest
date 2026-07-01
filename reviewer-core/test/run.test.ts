@@ -104,6 +104,31 @@ describe('reviewPullRequest (engine)', () => {
     ).rejects.toThrow('cancelled');
   });
 
+  it('ReviewInput.intent flows into assembly.intent and the assembled user message', async () => {
+    // Use a realistic intent string; plausible values surface type-coercion bugs better than 'test'.
+    const intentStr =
+      'Migrate pull-request webhook handler to use HMAC-SHA256 signature verification instead of shared secrets.';
+    const llm = new MockLLMProvider('openai', { structured: fixture });
+    const diff = await new MockGitClient().diff();
+
+    const outcome = await reviewPullRequest({
+      systemPrompt: 'security reviewer',
+      model: 'gpt-4.1',
+      diff,
+      llm,
+      intent: intentStr,
+      task: 'Review PR #91',
+    });
+
+    // Spec: assembly.intent carries the raw input intent string (not processed or truncated)
+    expect(outcome.assembly.intent).toBe(intentStr);
+
+    // Spec: ## PR intent block + trusted out-of-scope rule appear in the assembled user message
+    expect(outcome.assembly.user).toContain('## PR intent');
+    expect(outcome.assembly.user).toContain('emit exactly ONE signal finding, not many');
+    expect(outcome.assembly.user).toContain(intentStr);
+  });
+
   it('forwards sessionId to every LLM call (OpenRouter session grouping)', async () => {
     const seen: (string | undefined)[] = [];
     const recorder: LLMProvider = {

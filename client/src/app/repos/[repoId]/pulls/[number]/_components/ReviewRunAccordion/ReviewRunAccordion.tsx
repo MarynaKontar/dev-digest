@@ -31,6 +31,7 @@ export function ReviewRunAccordion({
   headSha,
   targetRunId = null,
   targetNonce = 0,
+  focusFindingId = null,
 }: {
   review: ReviewRecord;
   prId: string;
@@ -41,6 +42,9 @@ export function ReviewRunAccordion({
    *  (driven from the Timeline: clicking an agent name navigates here). */
   targetRunId?: string | null;
   targetNonce?: number;
+  /** Deep-link from a diff badge: if this run holds the finding, open the accordion
+   *  so its FindingsPanel can expand + scroll to that card. */
+  focusFindingId?: string | null;
 }) {
   const [open, setOpen] = React.useState(defaultOpen);
   const rootRef = React.useRef<HTMLDivElement | null>(null);
@@ -53,6 +57,11 @@ export function ReviewRunAccordion({
   }, [targetRunId, targetNonce, review.run_id]);
   const del = useDeleteReview(prId);
   const findings = review.findings;
+  // Open this run when it contains the deep-linked finding.
+  const holdsFocusFinding = !!focusFindingId && findings.some((f) => f.id === focusFindingId);
+  React.useEffect(() => {
+    if (holdsFocusFinding) setOpen(true);
+  }, [holdsFocusFinding]);
   const blockers = findings.filter((f) => f.severity === "CRITICAL" && !f.dismissed_at).length;
   const verdictColor = review.verdict ? VERDICT_COLOR[review.verdict] ?? "var(--text-muted)" : "var(--text-muted)";
 
@@ -152,6 +161,7 @@ export function ReviewRunAccordion({
             prId={prId}
             repoFullName={repoFullName}
             headSha={headSha}
+            focusFindingId={focusFindingId}
           />
         </div>
       )}
