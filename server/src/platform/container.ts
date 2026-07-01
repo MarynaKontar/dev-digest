@@ -27,10 +27,15 @@ import { AgentsRepository } from '../modules/agents/repository.js';
 import { ReviewRepository } from '../modules/reviews/repository.js';
 import { SkillsRepository } from '../modules/skills/repository.js';
 import { ConventionsRepository } from '../modules/conventions/repository.js';
+import { IntentRepository } from '../modules/intent/repository.js';
 import type { RepoIntel } from '../modules/repo-intel/types.js';
 import { RepoIntelService } from '../modules/repo-intel/service.js';
 import { type DepGraph, DepCruiseGraph } from '../adapters/depgraph/index.js';
 import { type Tokenizer, TiktokenTokenizer } from '../adapters/tokenizer/index.js';
+import {
+  SpecFetchResolver,
+  type SpecResolver,
+} from '../adapters/specfetch/index.js';
 
 /**
  * DI container. One per app instance. Holds config, db, the JobRunner,
@@ -53,6 +58,14 @@ export interface ContainerOverrides {
   /** repo-intel T3 adapters — only the indexer pipeline reads these. */
   depgraph?: DepGraph;
   tokenizer?: Tokenizer;
+  /** Intent repository — tests inject a mock to avoid DB in unit tests. */
+  intentRepo?: IntentRepository;
+  /**
+   * Spec/plan resolver — tests inject MockSpecResolver to avoid real git/GitHub
+   * calls. Unit 4a's SpecFetchResolver is the production implementation wired
+   * here by `get specResolver()`.
+   */
+  specResolver?: SpecResolver;
 }
 
 export class Container {
@@ -77,6 +90,8 @@ export class Container {
   private _skillsRepo?: SkillsRepository;
   private _reviewRepo?: ReviewRepository;
   private _conventionsRepo?: ConventionsRepository;
+  private _intentRepo?: IntentRepository;
+  private _specResolver?: SpecResolver;
   private _repoIntel?: RepoIntel;
   private _depgraph?: DepGraph;
   private _tokenizer?: Tokenizer;
@@ -107,6 +122,41 @@ export class Container {
 
   get conventionsRepo(): ConventionsRepository {
     return (this._conventionsRepo ??= new ConventionsRepository(this.db));
+  }
+
+  get intentRepo(): IntentRepository {
+    if (this.overrides.intentRepo) return this.overrides.intentRepo;
+    return (this._intentRepo ??= new IntentRepository(this.db));
+  }
+
+  /**
+   * Spec/plan resolver for the intent classifier (Unit 4a).
+   *
+   * The real implementation (SpecFetchResolver) requires a GitHubClient, which
+   * is resolved asynchronously (key lookup). To keep `get specResolver()` as a
+   * synchronous getter (mirroring other repo getters), we return a thin wrapper
+   * that lazily awaits `this.github()` on the first `resolve()` call and then
+   * caches the resolved SpecFetchResolver for subsequent calls.
+   */
+  get specResolver(): SpecResolver {
+    if (this.overrides.specResolver) return this.overrides.specResolver;
+    if (this._specResolver) return this._specResolver;
+
+    // Closure captures `container` for lazy github resolution.
+    const container = this;
+    let _inner: SpecFetchResolver | undefined;
+
+    this._specResolver = {
+      async resolve(prBody: string, repoRef, headSha: string) {
+        if (!_inner) {
+          const github = await container.github();
+          _inner = new SpecFetchResolver(container.git, github, container.config);
+        }
+        return _inner.resolve(prBody, repoRef, headSha);
+      },
+    };
+
+    return this._specResolver;
   }
 
   get reviewRepo(): ReviewRepository {

@@ -28,6 +28,7 @@
 - `noUncheckedIndexedAccess` in tsconfig causes `arr[0]` to type as `T | undefined` even in tests — always use `arr[0]!` when you know the element exists, or `find()` + a `expect(x).toBeDefined()` guard. Pattern seen in SkillCard.test.tsx and SkillsTab.test.tsx.
 - TS5076: `'??' and '||' operations cannot be mixed without parentheses` — always parenthesise: `(a ?? b) || c`, not `a ?? b || c`. Seen in disabled props that combine optional booleans (`isPending?: boolean`) with additional conditions.
 - `screen.getByText("X")` fails when a modal has both a heading and a button with the same label (e.g., "Create skill"). Use `getAllByText("X").length >= 1` or `getAllByRole("button").find(b => b.textContent?.includes("X"))` for the submit button specifically.
+- `@testing-library/user-event` is NOT installed in the client package (only `@testing-library/react` + `jsdom` are in devDependencies). All interaction tests MUST use `fireEvent` from `@testing-library/react` — importing `userEvent` throws a "Failed to resolve import" error at test-collection time and silently skips the entire test file. Do not add `userEvent.setup()` patterns; use `fireEvent.click(el)` etc. instead.
 
 ## Session Notes
 <!-- Datestamped session summaries -->
@@ -39,3 +40,6 @@
 ## Open Questions
 <!-- Still unresolved -->
 <!-- 2026-06-28 conventions session: no open questions remaining. -->
+
+## Session Notes (continued)
+- 2026-06-30 — Intent card (Unit 6): `client/src/hooks/intent.ts` (`usePrIntent` + `useRecomputeIntent`), `IntentCard/{IntentCard.tsx,styles.ts,index.ts}`, `OverviewTab.tsx` (added `prId` prop, renders `<IntentCard>` above description), `messages/en/prReview.json` (added `intent` namespace). Typecheck clean; all 58 tests pass. Key pattern: `SectionLabel` from `@devdigest/ui` has a `right?: React.ReactNode` prop that renders with `marginLeft: auto` — use it to place the recompute button in the card header without a wrapper div. `Button` from `@devdigest/ui` accepts `aria-label` as an HTML attribute (via `ButtonProps extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, "children">`) so icon-only buttons can use it directly with `aria-label` for accessibility. TQ v5: when `enabled: false`, `isLoading` is `false` (= `isPending && isFetching` = `pending && idle` = false), so a disabled query falls through to the data render with `data = undefined`, naturally showing the empty state via `data ?? null`.

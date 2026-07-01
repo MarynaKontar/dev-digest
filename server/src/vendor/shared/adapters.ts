@@ -67,6 +67,10 @@ export interface StructuredRequest<T> {
    * the `session_id` body field; ignored by providers that don't support it.
    */
   sessionId?: string;
+  /**
+   * OpenRouter — only route to providers that natively enforce json_schema.
+   */
+  requireParameters?: boolean;
 }
 
 export interface StructuredResult<T> {

@@ -1,5 +1,5 @@
 import type { Container } from '../../platform/container.js';
-import type { Provider, Review, RunTrace, UnifiedDiff } from '@devdigest/shared';
+import type { PrIntentRecord, Provider, Review, RunTrace, UnifiedDiff } from '@devdigest/shared';
 import { reviewPullRequest, countBlockers } from '@devdigest/reviewer-core';
 import { RunLogger } from '../../platform/run-logger.js';
 import * as schema from '../../db/schema.js';
@@ -7,7 +7,8 @@ import type { AgentRow } from '../../db/rows.js';
 import type { ReviewRepository, FindingRow, PullRow, ReviewRow } from './repository.js';
 import { REVIEW_STRATEGY } from './constants.js';
 import { taskLine } from './helpers.js';
-import { loadDiff } from './diff-loader.js';
+import { loadDiff } from '../_shared/diff-loader.js';
+import { IntentService } from '../intent/service.js';
 
 /** Thrown by a run when the user cancels it mid-flight (between map files). */
 export class RunCancelledError extends Error {
@@ -33,6 +34,36 @@ export type RunOutcome = {
   grounding: string;
   raw: Review;
 };
+
+/**
+ * Format a PrIntentRecord into the compact intent string injected into the
+ * reviewer prompt. Empty lists are omitted so the block stays minimal.
+ *
+ * Example output:
+ *   Intent: Refactor auth middleware to use JWT
+ *   In scope:
+ *   - Token validation
+ *   Out of scope:
+ *   - Session management
+ *   Risk areas:
+ *   - Backward compatibility with existing tokens
+ */
+function formatIntent(record: PrIntentRecord): string {
+  const lines: string[] = [`Intent: ${record.intent}`];
+  if (record.in_scope.length > 0) {
+    lines.push('In scope:');
+    for (const item of record.in_scope) lines.push(`- ${item}`);
+  }
+  if (record.out_of_scope.length > 0) {
+    lines.push('Out of scope:');
+    for (const item of record.out_of_scope) lines.push(`- ${item}`);
+  }
+  if (record.risk_areas.length > 0) {
+    lines.push('Risk areas:');
+    for (const item of record.risk_areas) lines.push(`- ${item}`);
+  }
+  return lines.join('\n');
+}
 
 /**
  * Owns the background execution of queued agent runs (extracted from
@@ -105,6 +136,27 @@ export class ReviewRunExecutor {
     }
     runLog.info(`Diff ready — ${diff.files.length} changed file(s); starting ${jobs.length} agent run(s)`);
 
+    // ---- Derive PR intent once (non-fatal) ------------------------------------
+    // Shared pre-work: runs BEFORE the per-agent loop so the intent step is
+    // captured in every fanned-out run's log buffer (the fan-out runLog targets
+    // all runIds). A failure here is non-fatal — the review proceeds without
+    // intent and the prompt is byte-identical to the pre-intent baseline
+    // (reviewPullRequest receives no `intent` field).
+    let intentText: string | undefined;
+    try {
+      const intentRecord = await runLog.step(
+        'Deriving PR intent',
+        () => new IntentService(this.container).ensureIntent(workspaceId, pull.id, logger),
+        { kind: 'tool' },
+      );
+      intentText = formatIntent(intentRecord);
+    } catch {
+      // Non-fatal: runLog.step already emitted the error event above.
+      // The review continues — when intentText is undefined the reviewPullRequest
+      // call is unchanged from before this feature.
+      runLog.info('Intent derivation failed — review continues without intent');
+    }
+
     for (const { agent, runId } of jobs) {
       const agentStart = Date.now();
       logger?.info(
@@ -112,7 +164,7 @@ export class ReviewRunExecutor {
         `review: agent "${agent.name}" started (${agent.provider}/${agent.model})`,
       );
       try {
-        const outcome = await this.runOneAgent(workspaceId, pull, repo, diff, agent, runId, runLog);
+        const outcome = await this.runOneAgent(workspaceId, pull, repo, diff, agent, runId, runLog, intentText);
         logger?.info(
           {
             runId,
@@ -144,6 +196,7 @@ export class ReviewRunExecutor {
     agent: AgentRow,
     runId: string,
     parentLog: RunLogger,
+    intent?: string,
   ): Promise<RunOutcome> {
     const start = Date.now();
     // Narrow the fanned-out pre-work logger to THIS run; the shared diff/intent
@@ -222,6 +275,12 @@ export class ReviewRunExecutor {
         // PR author's description/body — untrusted; assemblePrompt wraps +
         // truncates it. Omitted when the PR has no body.
         ...(pull.body ? { prDescription: pull.body } : {}),
+        // PR intent — derived once in executeRuns from the cheap flash-class
+        // classifier, injected as untrusted text (reviewer-core wraps it in the
+        // ## PR intent block + emits the one-signal out-of-scope rule). When
+        // absent (derivation failed or was skipped), this spread adds nothing
+        // and the prompt is byte-identical to the pre-intent baseline.
+        ...(intent ? { intent } : {}),
         task,
         sessionId: `${repo.owner}/${repo.name}#${pull.number}:${agent.name}`,
         onEvent: (e) => runLog.event(e.kind, e.msg, e.data),

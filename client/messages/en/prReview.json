@@ -111,5 +111,18 @@
     "goToReview": "Jump to this run’s findings below",
     "openTrace": "Open run trace & logs",
     "deleteRun": "Delete run"
+  },
+  "intent": {
+    "title": "PR Intent",
+    "recompute": "Recompute",
+    "ariaRecompute": "Recompute PR intent",
+    "inScope": "In Scope",
+    "outOfScope": "Out of Scope",
+    "riskAreas": "Risk Areas",
+    "none": "None",
+    "emptyTitle": "Intent not yet computed",
+    "emptyBody": "Click Recompute to classify this PR’s intent.",
+    "errorTitle": "Couldn’t load intent",
+    "errorBody": "The intent classification could not be loaded."
   }
 }
