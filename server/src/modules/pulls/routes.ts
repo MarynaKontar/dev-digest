@@ -1,13 +1,14 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { and, count, desc, eq, inArray, isNull } from 'drizzle-orm';
-import type { PrMeta, PrDetail, GitHubClient, PrReviewComment } from '@devdigest/shared';
-import { PrCommentInput } from '@devdigest/shared';
+import type { PrMeta, PrDetail, GitHubClient, PrReviewComment, SmartDiffResponse, Severity } from '@devdigest/shared';
+import { PrCommentInput, SmartDiffResponse as SmartDiffResponseSchema } from '@devdigest/shared';
 import * as t from '../../db/schema.js';
 import { getContext } from '../_shared/context.js';
 import { IdParams } from '../_shared/schemas.js';
 import { AppError, NotFoundError } from '../../platform/errors.js';
 import { deriveReviewStatus } from './status.js';
+import { buildSmartDiff, type SmartFinding } from './smart-diff.js';
 
 /**
  * F1 — pulls module. PR import via Octokit (list + per-PR detail).
@@ -430,6 +431,99 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
         const msg = err instanceof Error ? err.message : 'Failed to post the comment to GitHub.';
         throw new AppError('github_comment_failed', msg, 400, { cause: String(err) });
       }
+    },
+  );
+
+  // ---- Smart Diff ------------------------------------------------------------
+  // Deterministic, token-free reviewer-ordered diff. Classifies each PR file
+  // into core/wiring/boilerplate, attaches finding_lines from the latest open
+  // review session, and computes a split suggestion for large PRs.
+  app.get(
+    '/pulls/:id/smart-diff',
+    { schema: { params: IdParams, response: { 200: SmartDiffResponseSchema } } },
+    async (req): Promise<SmartDiffResponse> => {
+      const { workspaceId } = await getContext(container, req);
+
+      // Resolve the PR scoped to the authenticated workspace (prevents IDOR).
+      const [pr] = await container.db
+        .select()
+        .from(t.pullRequests)
+        .where(
+          and(eq(t.pullRequests.workspaceId, workspaceId), eq(t.pullRequests.id, req.params.id)),
+        );
+      if (!pr) throw new NotFoundError('Pull request not found');
+
+      // Load PR files (path + diff stats).
+      const prFileRows = await container.db
+        .select({
+          path: t.prFiles.path,
+          additions: t.prFiles.additions,
+          deletions: t.prFiles.deletions,
+        })
+        .from(t.prFiles)
+        .where(eq(t.prFiles.prId, pr.id));
+
+      // Cluster the latest review session using the same BATCH_GAP_MS heuristic
+      // already used by GET /repos/:id/pulls for findings counters.
+      // TODO: replace with exact grouping when a review_session_id lands in schema.
+      const BATCH_GAP_MS = 90_000;
+      const reviewRows = await container.db
+        .select({
+          id: t.reviews.id,
+          createdAt: t.reviews.createdAt,
+        })
+        .from(t.reviews)
+        .where(and(eq(t.reviews.prId, pr.id), eq(t.reviews.kind, 'review')))
+        .orderBy(desc(t.reviews.createdAt));
+
+      // Walk newest-first: accumulate the initial burst of reviews (the latest
+      // session) as long as consecutive rows stay within BATCH_GAP_MS.
+      const sessionIds: string[] = [];
+      let anchorMs: number | undefined;
+      for (const rv of reviewRows) {
+        const ms = rv.createdAt ? rv.createdAt.getTime() : 0;
+        if (anchorMs === undefined) {
+          anchorMs = ms;
+          sessionIds.push(rv.id);
+        } else if (anchorMs - ms <= BATCH_GAP_MS) {
+          sessionIds.push(rv.id);
+          anchorMs = ms;
+        } else {
+          break; // older than the gap — stop; this is a previous session
+        }
+      }
+
+      // Fetch open findings belonging to the latest session.
+      const findingRows =
+        sessionIds.length > 0
+          ? await container.db
+              .select({
+                id: t.findings.id,
+                file: t.findings.file,
+                startLine: t.findings.startLine,
+                endLine: t.findings.endLine,
+                rationale: t.findings.rationale,
+                severity: t.findings.severity,
+              })
+              .from(t.findings)
+              .where(
+                and(
+                  inArray(t.findings.reviewId, sessionIds),
+                  isNull(t.findings.dismissedAt),
+                ),
+              )
+          : [];
+
+      const smartFindings: SmartFinding[] = findingRows.map((f) => ({
+        id: f.id,
+        file: f.file,
+        startLine: f.startLine,
+        endLine: f.endLine,
+        rationale: f.rationale,
+        severity: f.severity as Severity,
+      }));
+
+      return buildSmartDiff(prFileRows, smartFindings);
     },
   );
 }

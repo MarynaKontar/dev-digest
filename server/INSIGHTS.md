@@ -69,5 +69,13 @@
 <!-- Dead ends & antipatterns -->
 - Do NOT use `new Response(largeString)` to test the 512 KB size cap in web-source.ts. Node.js 22 delivers the entire body as ONE chunk, so the cap check fires after accumulating the full body — the result is still the original string size (not capped). Use a `ReadableStream` with `pull()` callbacks that enqueue fixed-size chunks; see the streaming-cap test in `specfetch.test.ts` for the exact pattern.
 
+## Session Notes (continued)
+- 2026-07-01 — Smart Diff backend (Units 1+2). Added `constants.ts` (BOILERPLATE_PATTERNS, WIRING_PATTERNS, SMART_DIFF_TOO_BIG_LINES=600), `classifier.ts` (pure `classifyFile` — boilerplate→wiring→core), `classifier.test.ts` (15 hermetic Vitest cases, all 4 mandated assertions), and `smart-diff.ts` (pure `buildSmartDiff` — on-read composer, no DB/HTTP/LLM). Added `GET /pulls/:id/smart-diff` to `routes.ts`; imports `SmartDiffResponse` type + `SmartDiffResponse as SmartDiffResponseSchema` Zod schema from `@devdigest/shared` (the schema value alias needed for the `response` fastify schema declaration). BATCH_GAP_MS review-session clustering is inlined in the route (same pattern as GET /repos/:id/pulls). When no sessions exist (`sessionIds` empty), the findings query is skipped entirely (no `inArray` with empty array to Drizzle). Typecheck clean + 214 tests green.
+
+## What Works
+<!-- Approaches/solutions that worked -->
+- When a Fastify route's `response` schema must reference a named Zod schema, import the Zod object under an alias to avoid shadowing the TS type: `import type { SmartDiffResponse } from '@devdigest/shared'` + `import { SmartDiffResponse as SmartDiffResponseSchema } from '@devdigest/shared'`; then use `response: { 200: SmartDiffResponseSchema }` and `async (req): Promise<SmartDiffResponse>`.
+- Guarding against empty `inArray` before querying Drizzle (`sessionIds.length > 0 ? ... : []`) avoids the Drizzle error that occurs when `inArray` receives an empty array.
+
 ## Open Questions
 <!-- Still unresolved -->

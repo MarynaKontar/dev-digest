@@ -23,7 +23,14 @@ const SEV_BORDER: Record<string, string> = {
   SUGGESTION: "var(--ok)",
 };
 
-export function FindingMiniCard({ f }: { f: FindingRecord }) {
+export function FindingMiniCard({
+  f,
+  onGoToFile,
+}: {
+  f: FindingRecord;
+  /** When set, the file:line becomes a link that jumps to that line in the diff. */
+  onGoToFile?: (file: string, line: number) => void;
+}) {
   const borderColor = SEV_BORDER[f.severity] ?? "var(--border)";
 
   return (
@@ -54,7 +61,7 @@ export function FindingMiniCard({ f }: { f: FindingRecord }) {
 
       {/* Meta row: file:line + confidence */}
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 3 }}>
-        <MonoLink>
+        <MonoLink onClick={onGoToFile ? () => onGoToFile(f.file, f.start_line) : undefined}>
           {f.file}:{lineLabel(f)}
         </MonoLink>
         <ConfidenceNum value={f.confidence} />

@@ -101,6 +101,7 @@ export function RunHistory({
   reviews,
   onOpenTrace,
   onGoToReview,
+  onGoToFile,
   onDelete,
 }: {
   runs: RunSummary[];
@@ -109,6 +110,8 @@ export function RunHistory({
   reviews?: ReviewRecord[];
   onOpenTrace: (runId: string) => void;
   onGoToReview?: (runId: string) => void;
+  /** Jump a finding's file:line to that line in the diff tab. */
+  onGoToFile?: (file: string, line: number) => void;
   onDelete?: (runId: string) => void;
 }) {
   const t = useTranslations("prReview");
@@ -261,7 +264,7 @@ export function RunHistory({
                       </div>
                       <div style={{ padding: "8px 14px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
                         {openFindings.map((f) => (
-                          <FindingMiniCard key={f.id} f={f} />
+                          <FindingMiniCard key={f.id} f={f} onGoToFile={onGoToFile} />
                         ))}
                       </div>
                     </div>
